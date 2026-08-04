@@ -494,7 +494,7 @@ impl App {
                 self.status = format!("sorted by {}", self.sort.label());
                 self.rebuild_right();
             }
-            KeyCode::Char('u') => {
+            KeyCode::Char('S') => {
                 self.reverse = !self.reverse;
                 self.status = if self.reverse {
                     "reversed".into()
@@ -2079,11 +2079,11 @@ fn draw_help(frame: &mut term::Frame) {
         ("space", "tick a file"),
         ("c m v", "copy · move (asks where to) · paste"),
         ("p", "look into a file · j k up and down · d f sideways"),
-        ("", "   in a zip: enter looks, u unpacks here"),
+        ("u", "   in a zip: unpack this one here (enter looks)"),
         ("", "   json/xml are formatted · t shows the original"),
         ("z", "pack the selection into a zip, here"),
         ("x", "to the trash, after a question"),
-        ("s u", "sort by name/type/date · reverse"),
+        ("s S", "sort by name/type/date · reverse the order"),
         (".", "show hidden files"),
         ("R", "rename what the cursor is on"),
         ("e", "edit a text file · ctrl-s saves · esc closes"),

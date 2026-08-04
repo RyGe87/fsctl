@@ -81,10 +81,11 @@ After that `f` is your file manager, and where you leave it is where you stand.
 | `z` | pack the selection into a zip, here |
 | `p` | look into the file (`j`/`k` up and down, `d`/`f` sideways, `t` raw) |
 | `e` | edit a text file (`ctrl-s` saves, `esc` closes) |
+| `u` | in an archive: unpack the selected member here |
 | `R` | rename what the cursor is on |
 | `P` | the layout: files only · a strip below · half and half |
 | `x` `Del` | to the trash (asks first) |
-| `s` `u` | sort by name/type/date · reverse |
+| `s` `S` | sort by name/type/date · reverse the order |
 | `.` | show hidden files |
 | `r` | refresh |
 | `Esc` | clear the selection, then the clipboard |
