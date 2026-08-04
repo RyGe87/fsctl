@@ -146,7 +146,17 @@ struct Inside {
     offset: usize,
 }
 
+/// Where should this go? The same tree, asked as a question.
+struct Destination {
+    root: PathBuf,
+    expanded: BTreeSet<PathBuf>,
+    nodes: Vec<Node>,
+    cursor: usize,
+    offset: usize,
+}
+
 enum Modal {
+    Destination(Destination),
     Inside(Inside),
     Fetch(FetchAsk),
     Conflict(Conflict),
@@ -226,24 +236,7 @@ impl App {
     fn rebuild_left(&mut self) {
         let previous = self.current_path();
         self.nodes = match self.source {
-            Source::Folders => {
-                let probe = fsmodel::probe(&self.root, self.show_hidden);
-                let mut nodes = vec![Node {
-                    label: root_label(&self.root),
-                    detail: String::new(),
-                    path: self.root.clone(),
-                    depth: 0,
-                    expandable: probe.has_subdir,
-                    expanded: self.expanded.contains(&self.root),
-                    empty: probe.empty,
-                    hidden_only: probe.hidden_only,
-                }];
-                if self.expanded.contains(&self.root) {
-                    let root = self.root.clone();
-                    self.push_children(&root, 1, &mut nodes);
-                }
-                nodes
-            }
+            Source::Folders => folder_nodes(&self.root, &self.expanded, self.show_hidden),
             Source::Repos => self
                 .repos
                 .iter()
@@ -285,32 +278,6 @@ impl App {
         }
     }
 
-    fn push_children(&self, dir: &Path, depth: usize, out: &mut Vec<Node>) {
-        // Deep trees are legal but unreadable; the right pane is where you go
-        // deeper.
-        if depth > 12 {
-            return;
-        }
-        for child in fsmodel::subdirectories(dir, self.show_hidden) {
-            let expanded = self.expanded.contains(&child.path);
-            // A folder with nothing to unfold gets no triangle: the mark
-            // should promise something.
-            let probe = fsmodel::probe(&child.path, self.show_hidden);
-            out.push(Node {
-                label: child.name.clone(),
-                detail: String::new(),
-                path: child.path.clone(),
-                depth,
-                expandable: probe.has_subdir,
-                expanded,
-                empty: probe.empty,
-                hidden_only: probe.hidden_only,
-            });
-            if expanded {
-                self.push_children(&child.path, depth + 1, out);
-            }
-        }
-    }
 
     fn current_path(&self) -> Option<PathBuf> {
         self.nodes.get(self.left_cursor).map(|n| n.path.clone())
@@ -488,7 +455,10 @@ impl App {
             KeyCode::Char('w') => self.root_here(),
             KeyCode::Char('W') => self.root_up(),
             KeyCode::Char('c') => self.yank(Mode::Copy),
-            KeyCode::Char('m') => self.yank(Mode::Cut),
+            KeyCode::Char('m') => {
+                self.yank(Mode::Cut);
+                self.ask_destination();
+            }
             KeyCode::Char('v') => self.paste(),
             KeyCode::Char('r') => {
                 self.status = "verversen…".into();
@@ -510,6 +480,7 @@ impl App {
     fn on_modal_key(&mut self, code: KeyCode) {
         match self.modal {
             Some(Modal::Delete(_)) => self.on_delete_key(code),
+            Some(Modal::Destination(_)) => self.on_destination_key(code),
             Some(Modal::Inside(_)) => self.on_inside_key(code),
             Some(Modal::Fetch(_)) => self.on_fetch_key(code),
             Some(Modal::Look(_)) => self.on_look_key(code),
@@ -1102,6 +1073,82 @@ impl App {
         }));
     }
 
+    /// Opens the tree as a question: where does this go?
+    fn ask_destination(&mut self) {
+        if self.clipboard.is_none() {
+            return;
+        }
+        let expanded = self.expanded.clone();
+        let nodes = folder_nodes(&self.root, &expanded, self.show_hidden);
+        let here = self.current_path();
+        let cursor = here
+            .and_then(|p| nodes.iter().position(|n| n.path == p))
+            .unwrap_or(0);
+        self.modal = Some(Modal::Destination(Destination {
+            root: self.root.clone(),
+            expanded,
+            nodes,
+            cursor,
+            offset: 0,
+        }));
+    }
+
+    fn on_destination_key(&mut self, code: KeyCode) {
+        let height = self.screen.1.saturating_sub(7).max(1) as usize;
+        let show_hidden = self.show_hidden;
+        let Some(Modal::Destination(pick)) = &mut self.modal else {
+            return;
+        };
+        let last = pick.nodes.len().saturating_sub(1);
+        match code {
+            KeyCode::Down | KeyCode::Char('j') => pick.cursor = (pick.cursor + 1).min(last),
+            KeyCode::Up | KeyCode::Char('k') => pick.cursor = pick.cursor.saturating_sub(1),
+            KeyCode::Char('J') => pick.cursor = (pick.cursor + LEAP as usize).min(last),
+            KeyCode::Char('K') => pick.cursor = pick.cursor.saturating_sub(LEAP as usize),
+            KeyCode::PageDown => pick.cursor = (pick.cursor + height).min(last),
+            KeyCode::PageUp => pick.cursor = pick.cursor.saturating_sub(height),
+            KeyCode::Home | KeyCode::Char('g') => pick.cursor = 0,
+            KeyCode::End | KeyCode::Char('G') => pick.cursor = last,
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Enter => {
+                if let Some(node) = pick.nodes.get(pick.cursor)
+                    && node.expandable
+                    && !node.expanded
+                {
+                    pick.expanded.insert(node.path.clone());
+                    let at = pick.nodes[pick.cursor].path.clone();
+                    pick.nodes = folder_nodes(&pick.root, &pick.expanded, show_hidden);
+                    pick.cursor = pick.nodes.iter().position(|n| n.path == at).unwrap_or(0);
+                }
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                if let Some(node) = pick.nodes.get(pick.cursor) {
+                    let at = if node.expanded {
+                        pick.expanded.remove(&node.path);
+                        node.path.clone()
+                    } else {
+                        node.path.parent().unwrap_or(&node.path).to_path_buf()
+                    };
+                    pick.nodes = folder_nodes(&pick.root, &pick.expanded, show_hidden);
+                    pick.cursor = pick.nodes.iter().position(|n| n.path == at).unwrap_or(0);
+                }
+            }
+            KeyCode::Char('v') => {
+                let Some(target) = pick.nodes.get(pick.cursor).map(|n| n.path.clone()) else {
+                    return;
+                };
+                self.modal = None;
+                self.paste_into(target);
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.modal = None;
+                // The clipboard stays filled: you can always walk there
+                // yourself and press v.
+                self.status = "kies een map en druk v".into();
+            }
+            _ => {}
+        }
+    }
+
     /// Packs what you picked into a zip, here.
     fn compress(&mut self) {
         let items = self.targets();
@@ -1124,11 +1171,15 @@ impl App {
     }
 
     fn paste(&mut self) {
-        let Some(clip) = self.clipboard.clone() else {
-            self.status = "klembord is leeg".into();
+        let Some(dest) = self.current_path() else {
             return;
         };
-        let Some(dest) = self.current_path() else {
+        self.paste_into(dest);
+    }
+
+    fn paste_into(&mut self, dest: PathBuf) {
+        let Some(clip) = self.clipboard.clone() else {
+            self.status = "klembord is leeg".into();
             return;
         };
         let clashing = ops::conflicts(&clip.items, &dest).len();
@@ -1164,6 +1215,62 @@ impl App {
             let _ = std::fs::write(target, path.display().to_string());
         }
         self.quit = true;
+    }
+}
+
+/// The folder tree, from a root and a set of opened folders.
+///
+/// Shared by the pane on the left and by the picker that asks where something
+/// should go: two views of one shape, so choosing a destination feels like
+/// walking the tree you already know.
+fn folder_nodes(root: &Path, expanded: &BTreeSet<PathBuf>, show_hidden: bool) -> Vec<Node> {
+    let probe = fsmodel::probe(root, show_hidden);
+    let mut nodes = vec![Node {
+        label: root_label(root),
+        detail: String::new(),
+        path: root.to_path_buf(),
+        depth: 0,
+        expandable: probe.has_subdir,
+        expanded: expanded.contains(root),
+        empty: probe.empty,
+        hidden_only: probe.hidden_only,
+    }];
+    if expanded.contains(root) {
+        push_children(root, 1, expanded, show_hidden, &mut nodes);
+    }
+    nodes
+}
+
+fn push_children(
+    dir: &Path,
+    depth: usize,
+    expanded: &BTreeSet<PathBuf>,
+    show_hidden: bool,
+    out: &mut Vec<Node>,
+) {
+    // Deep trees are legal but unreadable; the right pane is where you go
+    // deeper.
+    if depth > 12 {
+        return;
+    }
+    for child in fsmodel::subdirectories(dir, show_hidden) {
+        let open = expanded.contains(&child.path);
+        // A folder with nothing to unfold gets no triangle: the mark should
+        // promise something.
+        let probe = fsmodel::probe(&child.path, show_hidden);
+        out.push(Node {
+            label: child.name.clone(),
+            detail: String::new(),
+            path: child.path.clone(),
+            depth,
+            expandable: probe.has_subdir,
+            expanded: open,
+            empty: probe.empty,
+            hidden_only: probe.hidden_only,
+        });
+        if open {
+            push_children(&child.path, depth + 1, expanded, show_hidden, out);
+        }
     }
 }
 
@@ -1259,8 +1366,8 @@ fn shorten(path: &Path) -> String {
 
 // ------------------------------------------------------------------- drawing --
 
-fn left_rows(app: &App) -> Vec<Row> {
-    app.nodes
+fn node_rows(nodes: &[Node], room: usize) -> Vec<Row> {
+    nodes
         .iter()
         .map(|node| {
             // ▾ ▸ er valt iets uit te klappen · × écht leeg · · alleen
@@ -1275,7 +1382,7 @@ fn left_rows(app: &App) -> Vec<Row> {
                 "  "
             };
             let indent = "  ".repeat(node.depth);
-            let room = (LEFT_WIDTH as usize).saturating_sub(indent.len() + 6);
+            let space = room.saturating_sub(indent.len() + 6);
             // Emphasis by weight, not by colour: sshctl keeps Blue for a
             // highlight background only, and dark blue text is unreadable on
             // half the themes out there.
@@ -1285,7 +1392,7 @@ fn left_rows(app: &App) -> Vec<Row> {
                     Style::new().fg(Color::DarkGray),
                 ),
                 (
-                    width::truncate(&node.label, room),
+                    width::truncate(&node.label, space),
                     Style::new().add_modifier(Modifier::BOLD),
                 ),
             ];
@@ -1298,6 +1405,10 @@ fn left_rows(app: &App) -> Vec<Row> {
             Row::new(segments)
         })
         .collect()
+}
+
+fn left_rows(app: &App) -> Vec<Row> {
+    node_rows(&app.nodes, LEFT_WIDTH as usize)
 }
 
 fn right_rows(app: &App, width_cells: usize) -> Vec<Row> {
@@ -1460,6 +1571,7 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     match &app.modal {
         Some(Modal::Conflict(conflict)) => draw_conflict(frame, conflict, app),
         Some(Modal::Delete(ask)) => draw_delete(frame, ask),
+        Some(Modal::Destination(pick)) => draw_destination(frame, pick, app),
         Some(Modal::Inside(inside)) => draw_inside(frame, inside),
         Some(Modal::Fetch(ask)) => draw_fetch(frame, ask),
         Some(Modal::Help) => draw_help(frame),
@@ -1569,7 +1681,7 @@ fn draw_help(frame: &mut term::Frame) {
         ("w W", "de map hier wordt de wortel · de wortel omhoog"),
         ("Enter", "bestand openen"),
         ("spatie", "bestand aan- of afvinken"),
-        ("c m v", "kopiëren · knippen · plakken"),
+        ("c m v", "kopiëren · verplaatsen (kiest waarheen) · plakken"),
         ("p", "in een bestand kijken · j k op en neer · d f zijwaarts"),
         ("", "   in een zip: enter bekijkt, e pakt hier uit"),
         ("", "   json/xml worden opgemaakt · t toont het origineel"),
@@ -1617,6 +1729,46 @@ fn draw_help(frame: &mut term::Frame) {
     frame.render_widget(
         term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" hulp ")),
         box_area,
+    );
+}
+
+fn draw_destination(frame: &mut term::Frame, pick: &Destination, app: &App) {
+    let area = frame.area();
+    let w = area.width.min(56).max(24);
+    let h = area.height.saturating_sub(6).max(6);
+    let box_area = Rect {
+        x: (area.width.saturating_sub(w)) / 2,
+        y: (area.height.saturating_sub(h)) / 2,
+        width: w,
+        height: h,
+    };
+    let inner = w.saturating_sub(2) as usize;
+    let rows = h.saturating_sub(3) as usize;
+    let offset = widgets::scroll_to(pick.offset, pick.cursor, rows, pick.nodes.len());
+
+    let count = app.clipboard.as_ref().map(|c| c.items.len()).unwrap_or(0);
+    frame.render_widget(term::Clear, box_area);
+    frame.render_widget(
+        List::new(node_rows(&pick.nodes, inner))
+            .block(Block::bordered().title(format!(" Waarheen met {count} item(s)? ")))
+            .cursor(pick.cursor)
+            .offset(offset)
+            .focused(true),
+        box_area,
+    );
+
+    let footer = Rect {
+        x: box_area.x + 1,
+        y: box_area.y + box_area.height - 2,
+        width: inner as u16,
+        height: 1,
+    };
+    frame.render_widget(
+        term::Paragraph::new(term::Line::from(term::Span::styled(
+            width::fit("v hierheen   ·   l h open en dicht   ·   esc zelf kiezen", inner),
+            Style::new().fg(Color::DarkGray),
+        ))),
+        footer,
     );
 }
 

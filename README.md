@@ -47,7 +47,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `w` | de map onder de cursor wordt de wortel van de boom |
 | `W` | de wortel één map omhoog |
 | `spatie` | bestand aan- of afvinken |
-| `c` `m` `v` | kopiëren · knippen · plakken |
+| `c` `m` `v` | kopiëren · verplaatsen (vraagt waarheen) · plakken |
 | `z` | de selectie hier inpakken tot een zip |
 | `p` | in het bestand kijken (`j`/`k` op en neer, `d`/`f` zijwaarts, `t` ruw/opgemaakt) |
 | `x` `Del` | naar de prullenbak (vraagt eerst) |
@@ -211,6 +211,28 @@ bestaat. Een bestaande naam wordt daarbij nooit overschreven.
 
 DiscoveryLab-packs zijn zips, dus `p` op een `.dls` toont meteen zijn
 `pack.json`.
+
+## Verplaatsen: waarheen?
+
+`m` neemt wat je hebt aangevinkt én vraagt meteen waar het heen moet, in
+dezelfde boom die je links al kent:
+
+```
+┌ Waarheen met 1 item(s)? ─────────────────────────────┐
+│  ▾ movetest                                          │
+│      bron                                            │
+│    ▸ doel                                            │
+│                                                      │
+│v hierheen   ·   l h open en dicht   ·   esc zelf kiezen│
+└──────────────────────────────────────────────────────┘
+```
+
+`l` en `h` klappen mappen open en dicht, `j`/`k` en `J`/`K` bewegen, `v` doet
+het. Botsen er namen, dan komt gewoon de bekende vraag met [B]/[O]/[S] erachter.
+
+`Esc` sluit de boom maar **laat het klembord gevuld**: je kunt dus altijd nog
+zelf naar een map navigeren en daar `v` drukken, zoals voorheen. `c` (kopiëren)
+werkt onveranderd op die manier — alleen `m` vraagt het meteen.
 
 ## Inpakken
 
