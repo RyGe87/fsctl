@@ -10,6 +10,7 @@
 //! and `stty` puts the terminal in raw mode.
 
 mod archive;
+mod editor;
 mod fsmodel;
 mod git;
 mod image;
@@ -164,6 +165,7 @@ struct Rename {
 }
 
 enum Modal {
+    Edit(editor::Editor),
     Rename(Rename),
     Destination(Destination),
     Inside(Inside),
@@ -396,7 +398,9 @@ impl App {
         // Ctrl-something is not the letter itself. Without this, ctrl-d asks
         // to delete and ctrl-c copies — and a terminal sends ctrl-d all by
         // itself when a pipe closes.
-        if key.modifiers.contains(term::event::KeyModifiers::CONTROL) {
+        if key.modifiers.contains(term::event::KeyModifiers::CONTROL)
+            && !matches!(self.modal, Some(Modal::Edit(_)))
+        {
             match key.code {
                 // The one everyone's fingers know.
                 KeyCode::Char('c') => self.leave(),
@@ -407,6 +411,10 @@ impl App {
                 KeyCode::Up => self.leap(-LEAP),
                 _ => {}
             }
+            return;
+        }
+        if matches!(self.modal, Some(Modal::Edit(_))) {
+            self.on_edit_key(key);
             return;
         }
         let code = key.code;
@@ -474,6 +482,7 @@ impl App {
                 };
             }
             KeyCode::Char('R') => self.ask_rename(),
+            KeyCode::Char('e') => self.edit(),
             KeyCode::Char('p') => self.look(),
             KeyCode::Char('x') | KeyCode::Delete => self.delete(),
             KeyCode::Char('z') => self.compress(),
@@ -1097,6 +1106,94 @@ impl App {
             folders,
             concealing,
         }));
+    }
+
+    /// Opens the file under the cursor for writing.
+    fn edit(&mut self) {
+        let Some(item) = self.items.get(self.right_cursor) else {
+            self.status = "nothing to edit".into();
+            return;
+        };
+        if item.dataless {
+            self.status = "fetch it first — p asks".into();
+            return;
+        }
+        match editor::Editor::open(&item.path, &item.name) {
+            Ok(buffer) => self.modal = Some(Modal::Edit(buffer)),
+            Err(reason) => self.status = reason,
+        }
+    }
+
+    fn on_edit_key(&mut self, key: term::event::KeyEvent) {
+        let page = self.screen.1.saturating_sub(8).max(1) as usize;
+        let Some(Modal::Edit(buffer)) = &mut self.modal else {
+            return;
+        };
+        // Ctrl-s saves wherever you are; the rest of ctrl is not ours.
+        if key.modifiers.contains(term::event::KeyModifiers::CONTROL) {
+            if key.code == KeyCode::Char('s') {
+                buffer.note = match buffer.save() {
+                    Ok(()) => Some("saved".to_string()),
+                    Err(e) => Some(format!("could not save: {e}")),
+                };
+            }
+            return;
+        }
+        // The question after Esc with unsaved changes.
+        if buffer.asking {
+            match key.code {
+                KeyCode::Char('s') => {
+                    let saved = buffer.save();
+                    match saved {
+                        Ok(()) => {
+                            self.modal = None;
+                            self.status = "saved".into();
+                            self.peeked = None;
+                            self.rebuild_right();
+                        }
+                        Err(e) => {
+                            buffer.asking = false;
+                            buffer.note = Some(format!("could not save: {e}"));
+                        }
+                    }
+                }
+                KeyCode::Char('d') => {
+                    self.modal = None;
+                    self.status = "changes thrown away".into();
+                }
+                KeyCode::Esc => buffer.asking = false,
+                _ => {}
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Char(c) => buffer.insert(c),
+            KeyCode::Enter => buffer.split_line(),
+            KeyCode::Backspace => buffer.delete_before(),
+            KeyCode::Delete => buffer.delete_at(),
+            KeyCode::Up => buffer.up(),
+            KeyCode::Down => buffer.down(),
+            KeyCode::Left => buffer.left(),
+            KeyCode::Right => buffer.right(),
+            KeyCode::Home => buffer.col = 0,
+            KeyCode::End => buffer.col = buffer.chars_in_line(),
+            KeyCode::PageUp => {
+                let row = buffer.row.saturating_sub(page) as isize;
+                buffer.move_to(row, buffer.col as isize)
+            }
+            KeyCode::PageDown => {
+                let row = (buffer.row + page) as isize;
+                buffer.move_to(row, buffer.col as isize)
+            }
+            KeyCode::Esc => {
+                if buffer.dirty {
+                    buffer.asking = true;
+                } else {
+                    self.modal = None;
+                }
+            }
+            _ => {}
+        }
     }
 
     /// A new name for the row you are on, offered as the old one.
@@ -1780,16 +1877,28 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
         status,
     );
 
+    // The two that need the app as a whole are asked first; the editor is the
+    // only one that changes while it draws, so it takes the borrow alone.
     match &app.modal {
-        Some(Modal::Conflict(conflict)) => draw_conflict(frame, conflict, app),
-        Some(Modal::Delete(ask)) => draw_delete(frame, ask),
+        Some(Modal::Conflict(conflict)) => {
+            draw_conflict(frame, conflict, app);
+            return;
+        }
+        Some(Modal::Destination(pick)) => {
+            draw_destination(frame, pick, app);
+            return;
+        }
+        _ => {}
+    }
+    match &mut app.modal {
+        Some(Modal::Edit(buffer)) => draw_edit(frame, buffer),
         Some(Modal::Rename(rename)) => draw_rename(frame, rename),
-        Some(Modal::Destination(pick)) => draw_destination(frame, pick, app),
         Some(Modal::Inside(inside)) => draw_inside(frame, inside),
         Some(Modal::Fetch(ask)) => draw_fetch(frame, ask),
         Some(Modal::Help) => draw_help(frame),
         Some(Modal::Look(look)) => draw_look(frame, look),
-        None => {}
+        Some(Modal::Delete(ask)) => draw_delete(frame, ask),
+        _ => {}
     }
 }
 
@@ -1885,7 +1994,7 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
 /// Everything the bottom bar used to say, at the moment you ask for it.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 20] = [
+    let rows: [(&str, &str); 21] = [
         ("1 2 3", "folders · repositories · unsaved work"),
         ("Tab", "switch column"),
         ("j k ↑ ↓", "move · J K by ten · PgUp/PgDn by screen"),
@@ -1903,6 +2012,7 @@ fn draw_help(frame: &mut term::Frame) {
         ("s u", "sort by name/type/date · reverse"),
         (".", "show hidden files"),
         ("R", "rename what the cursor is on"),
+        ("e", "edit a text file · ctrl-s saves · esc closes"),
         ("P", "the preview pane under the files"),
         ("r", "refresh"),
         ("q", "close, where you stood"),
@@ -1943,6 +2053,100 @@ fn draw_help(frame: &mut term::Frame) {
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
         term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" help ")),
+        box_area,
+    );
+}
+
+fn draw_edit(frame: &mut term::Frame, buffer: &mut editor::Editor) {
+    let area = frame.area();
+    let w = area.width.saturating_sub(4).max(24);
+    let h = area.height.saturating_sub(2).max(6);
+    let box_area = Rect {
+        x: (area.width - w) / 2,
+        y: (area.height - h) / 2,
+        width: w,
+        height: h,
+    };
+    let inner = w.saturating_sub(2) as usize;
+    let rows = h.saturating_sub(3) as usize;
+    let numbers = buffer.lines.len().to_string().len().max(3);
+
+    buffer.offset = widgets::scroll_to(buffer.offset, buffer.row, rows, buffer.lines.len());
+
+    let mut lines: Vec<term::Line> = Vec::new();
+    for (i, line) in buffer
+        .lines
+        .iter()
+        .enumerate()
+        .skip(buffer.offset)
+        .take(rows)
+    {
+        let room = inner.saturating_sub(numbers + 1);
+        let mut spans = vec![term::Span::styled(
+            format!("{:>numbers$} ", i + 1, numbers = numbers),
+            Style::new().fg(Color::DarkGray),
+        )];
+        if i == buffer.row {
+            // The caret is drawn, not moved: one reversed cell, always where
+            // the next character will land.
+            let at = line
+                .char_indices()
+                .nth(buffer.col)
+                .map(|(b, _)| b)
+                .unwrap_or(line.len());
+            let (before, after) = line.split_at(at);
+            let (on, rest) = match after.char_indices().nth(1) {
+                Some((i, _)) => after.split_at(i),
+                None => (after, ""),
+            };
+            spans.push(term::Span::raw(width::truncate(before, room)));
+            spans.push(term::Span::styled(
+                if on.is_empty() { " ".into() } else { on.to_string() },
+                Style::new().add_modifier(Modifier::REVERSED),
+            ));
+            spans.push(term::Span::raw(rest.to_string()));
+        } else {
+            spans.push(term::Span::raw(width::truncate(line, room)));
+        }
+        lines.push(term::Line::from(spans));
+    }
+    while lines.len() < rows {
+        lines.push(term::Line::default());
+    }
+
+    let footer = if buffer.asking {
+        "unsaved changes:  [s] save and close   [d] throw away   [esc] back".to_string()
+    } else {
+        format!(
+            "{}{}   ·   line {} col {}   ·   ctrl-s save   ·   esc close",
+            if buffer.dirty { "modified" } else { "saved" },
+            buffer
+                .note
+                .as_ref()
+                .map(|n| format!("   ·   {n}"))
+                .unwrap_or_default(),
+            buffer.row + 1,
+            buffer.col + 1
+        )
+    };
+    lines.push(term::Line::from(term::Span::styled(
+        width::fit(&footer, inner),
+        if buffer.asking {
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+        } else {
+            Style::new().fg(Color::DarkGray)
+        },
+    )));
+
+    frame.render_widget(term::Clear, box_area);
+    frame.render_widget(
+        term::Paragraph::new(term::Text::from(lines)).block(
+            Block::bordered().title(format!(
+                " {}{} ",
+                width::truncate(&buffer.name, inner.saturating_sub(6)),
+                if buffer.dirty { " •" } else { "" }
+            )),
+        ),
         box_area,
     );
 }

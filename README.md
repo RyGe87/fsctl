@@ -80,6 +80,9 @@ After that `f` is your file manager, and where you leave it is where you stand.
 | `c` `m` `v` | copy · move (asks where to) · paste |
 | `z` | pack the selection into a zip, here |
 | `p` | look into the file (`j`/`k` up and down, `d`/`f` sideways, `t` raw) |
+| `e` | edit a text file (`ctrl-s` saves, `esc` closes) |
+| `R` | rename what the cursor is on |
+| `P` | turn the preview pane under the files on or off |
 | `x` `Del` | to the trash (asks first) |
 | `s` `u` | sort by name/type/date · reverse |
 | `.` | show hidden files |
@@ -194,6 +197,36 @@ One item lends its own name; several take the name of the folder they land in.
 Pack the folder you are standing in and the archive lands beside it — an archive
 that contains itself is a riddle. An existing name is never overwritten; it
 becomes `name-2.zip`.
+
+## The pane under the files
+
+The right column is split: the listing on top, a glance at whatever the cursor
+is on underneath. That pane only does what is free — the head of the text,
+markdown laid out by us — because it runs on every arrow key. Formatters and
+thumbnails cost a process and stay behind `p`, where you asked for them. `P`
+turns the pane off.
+
+## Renaming
+
+`R` offers the old name with the caret parked at the end of the stem, so a typo
+in the name is one keystroke away and the extension is not in the way. A slash
+is refused — moving is what `m` is for — and so is a name that already exists.
+
+## Writing
+
+`e` opens a text file for editing: type, `Enter` splits a line, `Backspace`
+joins it again, the arrows and `Home`/`End`/`PgUp`/`PgDn` move about. `ctrl-s`
+saves, `Esc` closes — and if there are unsaved changes it asks first, with
+`[s] save and close`, `[d] throw away` and `[esc] back`.
+
+Saving writes a neighbouring file and renames it over the original, so a crash
+halfway leaves you with the old file whole rather than half a new one. The
+permissions come along, because an executable script has to stay executable, and
+a file that did not end in a newline does not silently gain one.
+
+It edits what fits in memory (up to 4 MB) and refuses anything that is not text.
+No undo, no syntax colouring, no autosave — for that, `Enter` still hands the
+file to the editor that was built for it.
 
 ## A look inside a file
 
