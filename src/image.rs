@@ -243,11 +243,6 @@ fn step(value: u8) -> u8 {
     best
 }
 
-/// Kept for the day a picture arrives without a name to go by.
-pub fn thumbnail_path() -> PathBuf {
-    std::env::temp_dir().join("fsctl-thumb.bmp")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
