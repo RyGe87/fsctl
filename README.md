@@ -40,6 +40,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `1` `2` `3` | van bron wisselen |
 | `Tab` | van kolom wisselen |
 | `j` `k` · pijltjes | omhoog en omlaag |
+| `J` `K` · `Ctrl`+pijl | tien tegelijk |
 | `l` `→` | map uitklappen, of naar rechts |
 | `h` `←` | map dichtklappen, of terug naar links |
 | `Enter` | bestand openen met `open` |
@@ -193,6 +194,11 @@ buiten houden: `FSCTL_TRASH=plain`.
 De wortel van de boom kan niet weg — daar zou de weergave op stukvallen.
 
 ## Grenzen van v0.1
+
+- **`Ctrl-J` bestaat niet.** Dat is byte `0x0A`, en dat *is* Enter — geen
+  terminal kan de twee uit elkaar houden. Daarom doen `J` en `K` (met shift)
+  de sprong van tien, en `Ctrl`+pijltje waar je terminal die doorstuurt.
+  Let op: macOS houdt `Ctrl`+↑/↓ standaard voor Mission Control.
 
 - **Geen voortgangsbalk.** Een APFS-kloon is ogenblikkelijk; een echte kopie
   over een volumegrens laat de tool even stilstaan. `ditto -V` kan dat later

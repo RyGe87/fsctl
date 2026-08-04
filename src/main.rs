@@ -31,6 +31,10 @@ use widgets::{List, Row};
 
 const LEFT_WIDTH: u16 = 34;
 
+/// How far a leap goes: far enough to be worth a chord, short enough to keep
+/// your place on the screen.
+const LEAP: isize = 10;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Source {
     Folders,
@@ -372,9 +376,15 @@ impl App {
         // to delete and ctrl-c copies — and a terminal sends ctrl-d all by
         // itself when a pipe closes.
         if key.modifiers.contains(term::event::KeyModifiers::CONTROL) {
-            // The one exception, because everyone's fingers know it.
-            if key.code == KeyCode::Char('c') {
-                self.leave();
+            match key.code {
+                // The one everyone's fingers know.
+                KeyCode::Char('c') => self.leave(),
+                // A leap of ten. Only the arrows: ctrl-d is also what a
+                // closing pipe sends, and a key that a machine can press by
+                // itself has no business moving your cursor.
+                KeyCode::Down => self.leap(LEAP),
+                KeyCode::Up => self.leap(-LEAP),
+                _ => {}
             }
             return;
         }
@@ -397,6 +407,10 @@ impl App {
             }
             KeyCode::Down | KeyCode::Char('j') => self.move_cursor(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_cursor(-1),
+            // Shift for a leap: ctrl-j is byte 0x0A, which is Enter itself and
+            // cannot be told apart from it.
+            KeyCode::Char('J') => self.leap(LEAP),
+            KeyCode::Char('K') => self.leap(-LEAP),
             KeyCode::PageDown => self.move_cursor(self.page() as isize),
             KeyCode::PageUp => self.move_cursor(-(self.page() as isize)),
             KeyCode::Home | KeyCode::Char('g') => self.move_cursor(-1_000_000),
@@ -499,6 +513,8 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => look.offset = look.offset.saturating_sub(1),
             KeyCode::PageDown => look.offset = (look.offset + height).min(last),
             KeyCode::PageUp => look.offset = look.offset.saturating_sub(height),
+            KeyCode::Char('J') => look.offset = (look.offset + LEAP as usize).min(last),
+            KeyCode::Char('K') => look.offset = look.offset.saturating_sub(LEAP as usize),
             KeyCode::Home | KeyCode::Char('g') => look.offset = 0,
             KeyCode::End | KeyCode::Char('G') => look.offset = last,
             // Sideways in steps of eight: one column at a time turns reading a
@@ -597,6 +613,22 @@ impl App {
         }
         self.rebuild_left();
         self.rebuild_right();
+    }
+
+    /// Ten rows at a time, in whatever is in front of you.
+    fn leap(&mut self, delta: isize) {
+        if let Some(Modal::Look(look)) = &mut self.modal {
+            let last = look.lines.len().saturating_sub(1);
+            look.offset = if delta < 0 {
+                look.offset.saturating_sub(delta.unsigned_abs())
+            } else {
+                (look.offset + delta as usize).min(last)
+            };
+            return;
+        }
+        if self.modal.is_none() {
+            self.move_cursor(delta);
+        }
     }
 
     fn page(&self) -> usize {
@@ -1221,20 +1253,24 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
         }
     }
 
-    let footer = match (&look.note, look.lines.is_empty()) {
-        (Some(note), false) => format!("{note}   ·   esc sluiten"),
-        _ => {
-            let sideways = if look.column > 0 {
-                format!("   ·   kolom {}", look.column + 1)
-            } else {
-                String::new()
-            };
-            format!(
-                "regel {} van {}{sideways}   ·   d f j k scrollen   ·   esc sluiten",
-                (look.offset + 1).min(look.lines.len().max(1)),
-                look.lines.len()
-            )
+    let footer = if look.lines.is_empty() {
+        look.note.clone().unwrap_or_default()
+    } else {
+        // Where you are comes first: after a leap that is the thing you look
+        // for. What the file is, and how to leave, follow.
+        let mut parts = vec![format!(
+            "regel {} van {}",
+            (look.offset + 1).min(look.lines.len()),
+            look.lines.len()
+        )];
+        if look.column > 0 {
+            parts.push(format!("kolom {}", look.column + 1));
         }
+        if let Some(note) = &look.note {
+            parts.push(note.clone());
+        }
+        parts.push("esc sluiten".to_string());
+        parts.join("   ·   ")
     };
     while lines.len() + 1 < rows {
         lines.push(term::Line::default());
@@ -1256,10 +1292,11 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
 /// Everything the bottom bar used to say, at the moment you ask for it.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 15] = [
+    let rows: [(&str, &str); 16] = [
         ("1 2 3", "mappen · repo's · onopgeslagen werk"),
         ("Tab", "van kolom wisselen"),
-        ("j k ↑ ↓", "bewegen · PgUp/PgDn per scherm · g G begin en eind"),
+        ("j k ↑ ↓", "bewegen · J K met tien · PgUp/PgDn per scherm"),
+        ("g G", "naar het begin en het eind"),
         ("l h → ←", "map uit- en dichtklappen, of van kolom wisselen"),
         ("w W", "de map hier wordt de wortel · de wortel omhoog"),
         ("Enter", "bestand openen"),
