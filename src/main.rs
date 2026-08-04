@@ -78,6 +78,8 @@ struct Node {
 /// busy with before it freezes for a second.
 enum Pending {
     ScanRepos,
+    /// Pull a file down from the cloud, then do what was asked with it.
+    Fetch(FetchAsk),
     Refresh,
     /// Finder does the trashing, and a busy Finder should not look like a
     /// frozen tool: the screen says so first, then we wait.
@@ -120,7 +122,18 @@ struct Look {
     picture: bool,
 }
 
+/// A file that is listed here but stored elsewhere, and what we were about to
+/// do with it.
+struct FetchAsk {
+    path: PathBuf,
+    name: String,
+    size: u64,
+    /// True when the plan was to hand it to another app rather than look at it.
+    hand_over: bool,
+}
+
 enum Modal {
+    Fetch(FetchAsk),
     Conflict(Conflict),
     Delete(DeleteAsk),
     Help,
@@ -312,6 +325,7 @@ impl App {
                             size: 0,
                             mtime: 0,
                             git: None,
+                            dataless: false,
                         });
                         // Inside a repository the path from the root reads
                         // better than a bare file name.
@@ -332,6 +346,9 @@ impl App {
                     .collect();
                 fsmodel::sort(&mut items, self.sort, self.reverse);
                 self.attach_git(&path, &mut items);
+                if fsmodel::is_cloud(&path) {
+                    fsmodel::mark_dataless(&mut items);
+                }
                 items
             }
         };
@@ -477,6 +494,7 @@ impl App {
     fn on_modal_key(&mut self, code: KeyCode) {
         match self.modal {
             Some(Modal::Delete(_)) => self.on_delete_key(code),
+            Some(Modal::Fetch(_)) => self.on_fetch_key(code),
             Some(Modal::Look(_)) => self.on_look_key(code),
             Some(Modal::Help) => {
                 if matches!(
@@ -556,20 +574,33 @@ impl App {
             self.status = "niets om in te kijken".into();
             return;
         };
-        let name = item.name.clone();
-        let markdown = matches!(
-            item.path
-                .extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .as_deref(),
-            Some("md" | "markdown" | "mdown" | "mkd")
+        let (path, name, dataless, size) = (
+            item.path.clone(),
+            item.name.clone(),
+            item.dataless,
+            item.size,
         );
-        if image::is_image(&item.path) {
+        // Reading a file that is only listed here pulls it down first, and that
+        // is a decision, not a keystroke.
+        if dataless {
+            self.modal = Some(Modal::Fetch(FetchAsk {
+                path,
+                name,
+                size,
+                hand_over: false,
+            }));
+            return;
+        }
+        self.preview_of(path, name);
+    }
+
+    fn preview_of(&mut self, path: PathBuf, name: String) {
+        if image::is_image(&path) {
             // The same box the text uses, measured the same way.
             let (w, h) = self.screen;
             let cols = w.saturating_sub(8) as usize;
             let rows = h.saturating_sub(7) as usize;
-            let (lines, note) = match image::thumbnail(&item.path, cols, rows) {
+            let (lines, note) = match image::thumbnail(&path, cols, rows) {
                 Ok((lines, note)) => (lines, note),
                 Err(reason) => (Vec::new(), reason),
             };
@@ -588,7 +619,13 @@ impl App {
             return;
         }
 
-        let (plain, formatted_raw, mut note) = match preview::read(&item.path) {
+        let markdown = matches!(
+            path.extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .as_deref(),
+            Some("md" | "markdown" | "mdown" | "mkd")
+        );
+        let (plain, formatted_raw, mut note) = match preview::read(&path) {
             preview::Preview::Text { lines, raw, note } => (lines, raw, note),
             preview::Preview::NotText(reason) => (Vec::new(), None, Some(reason)),
         };
@@ -612,6 +649,23 @@ impl App {
             note,
             picture: false,
         }));
+    }
+
+    fn on_fetch_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Enter | KeyCode::Char('p') => {
+                let Some(Modal::Fetch(ask)) = self.modal.take() else {
+                    return;
+                };
+                self.status = format!("{} ophalen…", ask.name);
+                self.pending = Some(Pending::Fetch(ask));
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.modal = None;
+                self.status = "niets opgehaald".into();
+            }
+            _ => {}
+        }
     }
 
     fn on_delete_key(&mut self, code: KeyCode) {
@@ -738,6 +792,16 @@ impl App {
         if !item.is_dir {
             let path = item.path.clone();
             let name = item.name.clone();
+            if item.dataless {
+                let size = item.size;
+                self.modal = Some(Modal::Fetch(FetchAsk {
+                    path,
+                    name,
+                    size,
+                    hand_over: true,
+                }));
+                return;
+            }
             self.status = match ops::open(&path) {
                 Ok(()) => format!("geopend: {name}"),
                 Err(e) => format!("openen mislukt: {e}"),
@@ -1120,6 +1184,10 @@ fn right_rows(app: &App, width_cells: usize) -> Vec<Row> {
                         Style::new().fg(colour).add_modifier(Modifier::BOLD),
                     ));
                 }
+                None if item.dataless => segments.push((
+                    width::fit(&format!("☁ {}", item.kind()), KIND),
+                    Style::new().fg(Color::Cyan),
+                )),
                 None => segments.push((
                     width::fit(&item.kind(), KIND),
                     Style::new().fg(Color::DarkGray),
@@ -1235,6 +1303,7 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     match &app.modal {
         Some(Modal::Conflict(conflict)) => draw_conflict(frame, conflict, app),
         Some(Modal::Delete(ask)) => draw_delete(frame, ask),
+        Some(Modal::Fetch(ask)) => draw_fetch(frame, ask),
         Some(Modal::Help) => draw_help(frame),
         Some(Modal::Look(look)) => draw_look(frame, look),
         None => {}
@@ -1387,6 +1456,46 @@ fn draw_help(frame: &mut term::Frame) {
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
         term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" hulp ")),
+        box_area,
+    );
+}
+
+fn draw_fetch(frame: &mut term::Frame, ask: &FetchAsk) {
+    let lines = vec![
+        term::Line::from(term::Span::styled(
+            width::truncate(&ask.name, 54),
+            Style::new().add_modifier(Modifier::BOLD),
+        )),
+        term::Line::from(term::Span::styled(
+            format!(
+                "staat in de cloud, niet op deze schijf ({})",
+                fsmodel::human_size(ask.size, false)
+            ),
+            Style::new().fg(Color::Cyan),
+        )),
+        term::Line::from(term::Span::raw("")),
+        term::Line::from(term::Span::raw(if ask.hand_over {
+            "[Enter] ophalen en openen      [Esc] laten staan"
+        } else {
+            "[Enter] ophalen en bekijken    [Esc] laten staan"
+        })),
+        term::Line::from(term::Span::styled(
+            "Het scherm staat stil zolang het binnenkomt.",
+            Style::new().fg(Color::DarkGray),
+        )),
+    ];
+    let area = frame.area();
+    let w = area.width.min(60).max(24);
+    let h = (lines.len() as u16 + 2).min(area.height);
+    let box_area = Rect {
+        x: area.width.saturating_sub(w) / 2,
+        y: area.height.saturating_sub(h) / 2,
+        width: w,
+        height: h,
+    };
+    frame.render_widget(term::Clear, box_area);
+    frame.render_widget(
+        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" Uit de cloud ")),
         box_area,
     );
 }
@@ -1560,6 +1669,17 @@ fn main() -> std::io::Result<()> {
                     app.status = outcome.summary_of("naar de prullenbak");
                     app.selection.clear();
                     app.rebuild_left();
+                    app.rebuild_right();
+                }
+                Pending::Fetch(ask) => {
+                    if ask.hand_over {
+                        app.status = match ops::open(&ask.path) {
+                            Ok(()) => format!("geopend: {}", ask.name),
+                            Err(e) => format!("openen mislukt: {e}"),
+                        };
+                    } else {
+                        app.preview_of(ask.path.clone(), ask.name.clone());
+                    }
                     app.rebuild_right();
                 }
                 Pending::Refresh => {

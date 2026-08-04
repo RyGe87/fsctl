@@ -17,6 +17,8 @@ pub struct Entry {
     pub mtime: i64,
     /// Git's two-letter porcelain code, when a repository has an opinion.
     pub git: Option<String>,
+    /// In the cloud but not on this disk: the row exists, the bytes do not.
+    pub dataless: bool,
 }
 
 impl Entry {
@@ -59,6 +61,7 @@ pub fn entry_for(path: &Path) -> Option<Entry> {
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0),
         git: None,
+        dataless: false,
     })
 }
 
@@ -132,6 +135,51 @@ pub fn probe(path: &Path, show_hidden: bool) -> Probe {
         has_subdir: false,
         empty: !anything,
         hidden_only: anything && !shown,
+    }
+}
+
+/// The folders where a file can be listed without being here.
+///
+/// Checked by name, so ordinary directories pay nothing for a question only
+/// the cloud can raise.
+pub fn is_cloud(path: &Path) -> bool {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if home.is_empty() {
+        return false;
+    }
+    path.starts_with(format!("{home}/Library/CloudStorage"))
+        || path.starts_with(format!("{home}/Library/Mobile Documents"))
+}
+
+/// Asks the filesystem which of these are only listed, not stored.
+///
+/// One `stat` for the whole listing rather than one per file, and it comes from
+/// the tool that already reads those flags — `st_flags` is not something Rust's
+/// standard library will show us.
+pub fn mark_dataless(entries: &mut [Entry]) {
+    // A long listing would outgrow the argument limit; four hundred at a time
+    // stays far below it and is still one process for an ordinary folder.
+    for chunk in entries.chunks_mut(400) {
+        let mut command = std::process::Command::new("/usr/bin/stat");
+        command.args(["-f", "%Sf|%N"]);
+        for entry in chunk.iter() {
+            command.arg(&entry.path);
+        }
+        let Ok(out) = command.output() else {
+            return;
+        };
+        let text = String::from_utf8_lossy(&out.stdout);
+        for line in text.lines() {
+            let Some((flags, path)) = line.split_once('|') else {
+                continue;
+            };
+            if !flags.contains("dataless") {
+                continue;
+            }
+            if let Some(entry) = chunk.iter_mut().find(|e| e.path.as_os_str() == path) {
+                entry.dataless = true;
+            }
+        }
     }
 }
 

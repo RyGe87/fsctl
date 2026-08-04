@@ -183,6 +183,46 @@ Een nulbyte in de eerste 128 KB betekent geen tekst, en dan zegt het venster
 dat gewoon. Meer dan 128 KB wordt niet gelezen; loopt het bestand door, dan
 staat dat onderaan.
 
+## Cloudmappen
+
+iCloud, OneDrive en Proton Drive zijn gewone mappen op je schijf, dus je bladert
+er zonder meer doorheen:
+
+```
+~/Library/Mobile Documents/com~apple~CloudDocs    iCloud Drive
+~/Library/CloudStorage/OneDrive-…                 OneDrive
+~/Library/CloudStorage/ProtonDrive-…              Proton Drive
+```
+
+Wat je daar ziet staan, staat er niet noodzakelijk *echt*. macOS zet de vlag
+`dataless` op bestanden die alleen in de lijst bestaan: volledige naam, volledige
+grootte, geen bytes. Die krijgen een **☁** in de typekolom:
+
+```
+▢ github-recovery-codes.txt     ☁ txt
+```
+
+Bekijken (`p`) of openen (`Enter`) dwingt dan een download af, en daar vraagt
+fsctl eerst naar — met de omvang erbij, want dat is wat het kost:
+
+```
+┌ Uit de cloud ────────────────────────────────────────────┐
+│github-recovery-codes.txt                                 │
+│staat in de cloud, niet op deze schijf (206 B)            │
+│                                                          │
+│[Enter] ophalen en bekijken    [Esc] laten staan          │
+│Het scherm staat stil zolang het binnenkomt.              │
+└──────────────────────────────────────────────────────────┘
+```
+
+De vlaggen worden met één `stat` voor de hele lijst opgehaald, en alleen in een
+cloudmap — een gewone map betaalt niets voor een vraag die daar niet bestaat.
+
+Twee dingen blijven staan: **kopiëren** van een ☁-bestand haalt het ook op, maar
+daar wordt niet naar gevraagd (dat is een bewuste handeling), en zet `FSCTL_ROOTS`
+niet op een cloudmap — een repo-scan door duizenden niet-lokale bestanden duurt
+eindeloos.
+
 ## Verwijderen
 
 Naar de prullenbak, nooit rechtstreeks weg. Finder doet het via `osascript`,
