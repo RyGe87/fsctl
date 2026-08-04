@@ -145,7 +145,7 @@ impl App {
         self.nodes = match self.source {
             Source::Folders => {
                 let mut nodes = vec![Node {
-                    label: shorten(&self.root),
+                    label: root_label(&self.root),
                     detail: String::new(),
                     path: self.root.clone(),
                     depth: 0,
@@ -691,6 +691,19 @@ fn scan_roots() -> Vec<PathBuf> {
         .collect()
 }
 
+/// The top of the tree wears its own name, not its whole path — the path is
+/// already spelled out above the file list, so repeating it here would only
+/// eat the width the tree needs.
+fn root_label(path: &Path) -> String {
+    if path == dirs_home() {
+        return "~".to_string();
+    }
+    path.file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        // The volume root has no name of its own.
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 /// `/Users/you/Development` shows as `~/Development`.
 fn shorten(path: &Path) -> String {
     let home = dirs_home();
@@ -725,13 +738,7 @@ fn left_rows(app: &App) -> Vec<Row> {
                     Style::new().fg(Color::DarkGray),
                 ),
                 (
-                    // The root is a whole path, and its tail says where you
-                    // are; a child is a single name and reads from the front.
-                    if node.depth == 0 {
-                        width::truncate_start(&node.label, room)
-                    } else {
-                        width::truncate(&node.label, room)
-                    },
+                    width::truncate(&node.label, room),
                     Style::new().add_modifier(Modifier::BOLD),
                 ),
             ];
