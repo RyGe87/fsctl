@@ -183,6 +183,34 @@ Een nulbyte in de eerste 128 KB betekent geen tekst, en dan zegt het venster
 dat gewoon. Meer dan 128 KB wordt niet gelezen; loopt het bestand door, dan
 staat dat onderaan.
 
+## In een archief kijken
+
+`p` op een `.zip`, `.dls`, `.jar`, `.epub`, `.tar.gz` of familie toont wat erin
+zit — **zonder uit te pakken**:
+
+```
+┌ proef.zip — 3 items ───────────────────────────────────┐
+│  tekst.txt                                        17 B │
+│  map/                                                — │
+│  map/data.json                                     8 B │
+│                                                        │
+│enter bekijken   ·   c hier uitpakken   ·   esc sluiten │
+└────────────────────────────────────────────────────────┘
+```
+
+`Enter` op een lid leest het rechtstreeks uit het archief — `unzip -p` schrijft
+het naar zijn uitvoer, wij lezen mee. Er komt dus **geen tijdelijk bestand** aan
+te pas: niets om op te ruimen, en niets dat je per ongeluk bewerkt op een plek
+die straks verdwijnt. `Esc` brengt je terug naar de lijst.
+
+Openen in een andere app zit er bewust niet in, precies om die reden. Wil je
+ermee werken, dan is `c` het eerlijke antwoord: dat pakt het geselecteerde lid
+uit **in de map waar je staat** — een echt bestand, op een plek die morgen nog
+bestaat. Een bestaande naam wordt daarbij nooit overschreven.
+
+DiscoveryLab-packs zijn zips, dus `p` op een `.dls` toont meteen zijn
+`pack.json`.
+
 ## Cloudmappen
 
 iCloud, OneDrive en Proton Drive zijn gewone mappen op je schijf, dus je bladert

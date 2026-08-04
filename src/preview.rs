@@ -195,6 +195,34 @@ pub fn read(path: &Path) -> Preview {
     }
 }
 
+/// The same reading, for something that never was a file on disk — a member
+/// streamed out of an archive. No formatter runs here: plutil and xmllint want
+/// a path, and a temporary file is exactly what this avoids.
+pub fn from_bytes(bytes: &[u8], full_size: u64) -> Preview {
+    if bytes.is_empty() {
+        return Preview::NotText("leeg".to_string());
+    }
+    if bytes.contains(&0) {
+        return Preview::NotText(format!(
+            "geen tekstbestand ({})",
+            crate::fsmodel::human_size(full_size, false)
+        ));
+    }
+    let head = &bytes[..bytes.len().min(LIMIT)];
+    let text = match std::str::from_utf8(head) {
+        Ok(text) => text.to_string(),
+        Err(e) if e.valid_up_to() > 0 => {
+            String::from_utf8_lossy(&head[..e.valid_up_to()]).to_string()
+        }
+        Err(_) => return Preview::NotText("geen leesbare tekst".to_string()),
+    };
+    Preview::Text {
+        lines: split(&text),
+        raw: None,
+        note: (bytes.len() > LIMIT).then(|| "… alleen het begin".to_string()),
+    }
+}
+
 fn split(text: &str) -> Vec<String> {
     text.lines()
         .map(|line| {

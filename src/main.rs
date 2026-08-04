@@ -9,6 +9,7 @@
 //! move the bytes, `git status` reports the repositories, `open` opens files,
 //! and `stty` puts the terminal in raw mode.
 
+mod archive;
 mod fsmodel;
 mod git;
 mod image;
@@ -120,6 +121,8 @@ struct Look {
     note: Option<String>,
     /// A picture gets no line numbers — there is nothing to number.
     picture: bool,
+    /// The archive to step back into when this member is closed.
+    back: Option<Inside>,
 }
 
 /// A file that is listed here but stored elsewhere, and what we were about to
@@ -132,7 +135,17 @@ struct FetchAsk {
     hand_over: bool,
 }
 
+/// Standing inside an archive, looking at what it holds.
+struct Inside {
+    path: PathBuf,
+    name: String,
+    members: Vec<archive::Member>,
+    cursor: usize,
+    offset: usize,
+}
+
 enum Modal {
+    Inside(Inside),
     Fetch(FetchAsk),
     Conflict(Conflict),
     Delete(DeleteAsk),
@@ -494,6 +507,7 @@ impl App {
     fn on_modal_key(&mut self, code: KeyCode) {
         match self.modal {
             Some(Modal::Delete(_)) => self.on_delete_key(code),
+            Some(Modal::Inside(_)) => self.on_inside_key(code),
             Some(Modal::Fetch(_)) => self.on_fetch_key(code),
             Some(Modal::Look(_)) => self.on_look_key(code),
             Some(Modal::Help) => {
@@ -562,7 +576,11 @@ impl App {
                 }
             }
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') | KeyCode::Enter => {
-                self.modal = None;
+                let back = match &mut self.modal {
+                    Some(Modal::Look(look)) => look.back.take(),
+                    _ => None,
+                };
+                self.modal = back.map(Modal::Inside);
             }
             _ => {}
         }
@@ -591,6 +609,10 @@ impl App {
             }));
             return;
         }
+        if archive::is_archive(&path) {
+            self.open_archive(path, name, 0);
+            return;
+        }
         self.preview_of(path, name);
     }
 
@@ -615,6 +637,7 @@ impl App {
                 widest,
                 note: Some(note),
                 picture: true,
+                back: None,
             }));
             return;
         }
@@ -648,7 +671,117 @@ impl App {
             widest,
             note,
             picture: false,
+            back: None,
         }));
+    }
+
+    fn open_archive(&mut self, path: PathBuf, name: String, cursor: usize) {
+        match archive::list(&path) {
+            Ok(members) if !members.is_empty() => {
+                let cursor = cursor.min(members.len() - 1);
+                self.modal = Some(Modal::Inside(Inside {
+                    path,
+                    name,
+                    members,
+                    cursor,
+                    offset: 0,
+                }));
+            }
+            Ok(_) => self.status = "het archief is leeg".into(),
+            Err(e) => self.status = format!("archief: {e}"),
+        }
+    }
+
+    fn on_inside_key(&mut self, code: KeyCode) {
+        let height = self.screen.1.saturating_sub(7).max(1) as usize;
+        let Some(Modal::Inside(inside)) = &mut self.modal else {
+            return;
+        };
+        let last = inside.members.len().saturating_sub(1);
+        match code {
+            KeyCode::Down | KeyCode::Char('j') => inside.cursor = (inside.cursor + 1).min(last),
+            KeyCode::Up | KeyCode::Char('k') => inside.cursor = inside.cursor.saturating_sub(1),
+            KeyCode::Char('J') => inside.cursor = (inside.cursor + LEAP as usize).min(last),
+            KeyCode::Char('K') => inside.cursor = inside.cursor.saturating_sub(LEAP as usize),
+            KeyCode::PageDown => inside.cursor = (inside.cursor + height).min(last),
+            KeyCode::PageUp => inside.cursor = inside.cursor.saturating_sub(height),
+            KeyCode::Home | KeyCode::Char('g') => inside.cursor = 0,
+            KeyCode::End | KeyCode::Char('G') => inside.cursor = last,
+            KeyCode::Enter | KeyCode::Char('p') => self.look_at_member(),
+            KeyCode::Char('c') => self.take_member_out(),
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.modal = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Reads one member straight out of the archive — no unpacking, nothing
+    /// left behind.
+    fn look_at_member(&mut self) {
+        let Some(Modal::Inside(inside)) = &self.modal else {
+            return;
+        };
+        let Some(member) = inside.members.get(inside.cursor) else {
+            return;
+        };
+        if member.is_dir {
+            return;
+        }
+        let (name, size) = (member.name.clone(), member.size);
+        let bytes = archive::read_member(&inside.path, &name);
+        let back = match self.modal.take() {
+            Some(Modal::Inside(inside)) => Some(inside),
+            _ => None,
+        };
+        let (lines, note) = match bytes {
+            Ok(bytes) => match preview::from_bytes(&bytes, size) {
+                preview::Preview::Text { lines, note, .. } => {
+                    let rendered = if name.to_lowercase().ends_with(".md") {
+                        markdown::render(&lines)
+                    } else {
+                        as_styled(lines)
+                    };
+                    (rendered, note)
+                }
+                preview::Preview::NotText(reason) => (Vec::new(), Some(reason)),
+            },
+            Err(e) => (Vec::new(), Some(e)),
+        };
+        let widest = widest_of(&lines);
+        self.modal = Some(Modal::Look(Look {
+            name,
+            lines,
+            raw: None,
+            showing_raw: false,
+            offset: 0,
+            column: 0,
+            widest,
+            note,
+            picture: false,
+            back,
+        }));
+    }
+
+    /// Out of the archive and into the folder you are standing in — a real
+    /// file, in a place that will still be there tomorrow.
+    fn take_member_out(&mut self) {
+        let Some(Modal::Inside(inside)) = &self.modal else {
+            return;
+        };
+        let Some(member) = inside.members.get(inside.cursor) else {
+            return;
+        };
+        let Some(dest) = self.current_path() else {
+            return;
+        };
+        let (archive_path, name) = (inside.path.clone(), member.name.clone());
+        self.status = match archive::extract(&archive_path, &name, &dest) {
+            Ok(()) => format!("{name} uitgepakt in {}", shorten(&dest)),
+            Err(e) => format!("uitpakken mislukt: {e}"),
+        };
+        self.modal = None;
+        self.rebuild_right();
     }
 
     fn on_fetch_key(&mut self, code: KeyCode) {
@@ -1303,6 +1436,7 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     match &app.modal {
         Some(Modal::Conflict(conflict)) => draw_conflict(frame, conflict, app),
         Some(Modal::Delete(ask)) => draw_delete(frame, ask),
+        Some(Modal::Inside(inside)) => draw_inside(frame, inside),
         Some(Modal::Fetch(ask)) => draw_fetch(frame, ask),
         Some(Modal::Help) => draw_help(frame),
         Some(Modal::Look(look)) => draw_look(frame, look),
@@ -1402,7 +1536,7 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
 /// Everything the bottom bar used to say, at the moment you ask for it.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 16] = [
+    let rows: [(&str, &str); 17] = [
         ("1 2 3", "mappen · repo's · onopgeslagen werk"),
         ("Tab", "van kolom wisselen"),
         ("j k ↑ ↓", "bewegen · J K met tien · PgUp/PgDn per scherm"),
@@ -1413,6 +1547,7 @@ fn draw_help(frame: &mut term::Frame) {
         ("spatie", "bestand aan- of afvinken"),
         ("c m v", "kopiëren · knippen · plakken"),
         ("p", "in een bestand kijken · j k op en neer · d f zijwaarts"),
+        ("", "   in een zip: enter bekijkt, c pakt hier uit"),
         ("", "   json/xml worden opgemaakt · t toont het origineel"),
         ("x", "naar de prullenbak, na een vraag"),
         ("s u", "sorteren op naam/type/datum · omkeren"),
@@ -1457,6 +1592,76 @@ fn draw_help(frame: &mut term::Frame) {
     frame.render_widget(
         term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" hulp ")),
         box_area,
+    );
+}
+
+fn draw_inside(frame: &mut term::Frame, inside: &Inside) {
+    let area = frame.area();
+    let w = area.width.saturating_sub(6).max(24);
+    let h = area.height.saturating_sub(4).max(6);
+    let box_area = Rect {
+        x: (area.width - w) / 2,
+        y: (area.height - h) / 2,
+        width: w,
+        height: h,
+    };
+    let inner = w.saturating_sub(2) as usize;
+    let rows = h.saturating_sub(3) as usize;
+
+    let offset = widgets::scroll_to(inside.offset, inside.cursor, rows, inside.members.len());
+    let name_w = inner.saturating_sub(12);
+    let rows_out: Vec<Row> = inside
+        .members
+        .iter()
+        .map(|m| {
+            let style = if m.is_dir {
+                Style::new().add_modifier(Modifier::BOLD)
+            } else {
+                Style::new()
+            };
+            Row::new(vec![
+                (width::fit(&m.name, name_w), style),
+                (
+                    width::fit_right(&fsmodel::human_size(m.size, m.is_dir), 9),
+                    Style::new().fg(Color::DarkGray),
+                ),
+            ])
+        })
+        .collect();
+
+    frame.render_widget(term::Clear, box_area);
+    frame.render_widget(
+        List::new(rows_out)
+            .block(Block::bordered().title(format!(
+                " {} — {} ",
+                width::truncate(&inside.name, inner.saturating_sub(20)),
+                match inside.members.len() {
+                    1 => "1 item".to_string(),
+                    n => format!("{n} items"),
+                }
+            )))
+            .cursor(inside.cursor)
+            .offset(offset)
+            .focused(true),
+        box_area,
+    );
+
+    // The footer sits on the box's last inner row, under the list.
+    let footer = Rect {
+        x: box_area.x + 1,
+        y: box_area.y + box_area.height - 2,
+        width: inner as u16,
+        height: 1,
+    };
+    frame.render_widget(
+        term::Paragraph::new(term::Line::from(term::Span::styled(
+            width::fit(
+                "enter bekijken   ·   c hier uitpakken   ·   esc sluiten",
+                inner,
+            ),
+            Style::new().fg(Color::DarkGray),
+        ))),
+        footer,
     );
 }
 
