@@ -47,7 +47,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `W` | de wortel één map omhoog |
 | `spatie` | bestand aan- of afvinken |
 | `c` `m` `v` | kopiëren · knippen · plakken |
-| `p` | in het bestand kijken (`j`/`k` op en neer, `d`/`f` zijwaarts, `0` terug) |
+| `p` | in het bestand kijken (`j`/`k` op en neer, `d`/`f` zijwaarts, `t` ruw/opgemaakt) |
 | `x` `Del` | naar de prullenbak (vraagt eerst) |
 | `s` `u` | sorteren (naam/type/datum) · omkeren |
 | `.` | verborgen bestanden tonen |
@@ -105,6 +105,8 @@ FSCTL_ROOTS="$HOME/Development:$HOME/Werk" fsctl
 | openen | `/usr/bin/open` | macOS weet welke app erbij hoort |
 | repo's vinden | `/usr/bin/find` | één proces over honderdduizenden bestanden |
 | repo-staat | `git --no-optional-locks status --porcelain --branch` | per repo, nooit per bestand |
+| json en plists opmaken | `/usr/bin/plutil` | kent ze allebei, en zegt precies waar een JSON stuk is |
+| xml opmaken | `/usr/bin/xmllint` | ships met macOS |
 | tijdzone | `/bin/date +%z` | goedkoper dan zelf `/etc/localtime` lezen |
 
 Argumenten gaan rechtstreeks naar het proces, nooit via een shell. Een bestand
@@ -138,7 +140,22 @@ valt schuif je in beeld. Bedoeld om te bevestigen dat je
 het juiste bestand te pakken hebt, niet om in te lezen — daarvoor is `Enter`,
 dat de gewone app opent.
 
-Of iets tekst is, wordt bepaald door de **inhoud** en niet door de extensie:
+**JSON, XML en property lists worden opgemaakt** voor je ze ziet, door de tools
+die macOS zelf meebrengt: `plutil` voor JSON en plists, `xmllint` voor XML. Wij
+schrijven hier geen parsers. `t` toont het origineel zoals het op schijf staat.
+
+Weigert de formatter, dan is dat juist het nieuws: een JSON-bestand dat niet
+opmaakt, is stuk — en plutil zegt waar. Je krijgt de ruwe tekst plus de klacht:
+
+```
+  1 {"kapot":}
+⚠ Invalid value around line 1, column 9.   ·   esc sluiten
+```
+
+Een **binaire** plist is technisch geen tekst, maar `plutil` maakt er weer XML
+van, dus die kun je gewoon bekijken.
+
+Of iets tekst is, wordt verder bepaald door de **inhoud** en niet door de extensie:
 een `Makefile` of `.zshrc` heeft er geen, en een `.log` kan best binair zijn.
 Een nulbyte in de eerste 128 KB betekent geen tekst, en dan zegt het venster
 dat gewoon. Meer dan 128 KB wordt niet gelezen; loopt het bestand door, dan

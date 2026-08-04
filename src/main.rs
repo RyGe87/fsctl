@@ -98,6 +98,9 @@ struct DeleteAsk {
 struct Look {
     name: String,
     lines: Vec<String>,
+    /// The file as it reads on disk, when a formatter rearranged it.
+    raw: Option<Vec<String>>,
+    showing_raw: bool,
     offset: usize,
     /// How far the window has slid sideways, in cells.
     column: usize,
@@ -505,6 +508,17 @@ impl App {
                 look.column = look.column.saturating_sub(8)
             }
             KeyCode::Char('0') => look.column = 0,
+            // Back and forth between what the formatter made of it and what
+            // is actually in the file.
+            KeyCode::Char('t') => {
+                if let Some(other) = look.raw.take() {
+                    look.raw = Some(std::mem::replace(&mut look.lines, other));
+                    look.showing_raw = !look.showing_raw;
+                    look.offset = 0;
+                    look.column = 0;
+                    look.widest = look.lines.iter().map(|l| width::str_width(l)).max().unwrap_or(0);
+                }
+            }
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') | KeyCode::Enter => {
                 self.modal = None;
             }
@@ -519,17 +533,16 @@ impl App {
             return;
         };
         let name = item.name.clone();
-        let (lines, note) = match preview::read(&item.path) {
-            preview::Preview::Text { lines, clipped } => (
-                lines,
-                clipped.then(|| "… alleen het begin van het bestand".to_string()),
-            ),
-            preview::Preview::NotText(reason) => (Vec::new(), Some(reason)),
+        let (lines, raw, note) = match preview::read(&item.path) {
+            preview::Preview::Text { lines, raw, note } => (lines, raw, note),
+            preview::Preview::NotText(reason) => (Vec::new(), None, Some(reason)),
         };
         let widest = lines.iter().map(|l| width::str_width(l)).max().unwrap_or(0);
         self.modal = Some(Modal::Look(Look {
             name,
             lines,
+            raw,
+            showing_raw: false,
             offset: 0,
             column: 0,
             widest,
@@ -1187,7 +1200,7 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
 /// Everything the bottom bar used to say, at the moment you ask for it.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 14] = [
+    let rows: [(&str, &str); 15] = [
         ("1 2 3", "mappen · repo's · onopgeslagen werk"),
         ("Tab", "van kolom wisselen"),
         ("j k ↑ ↓", "bewegen · PgUp/PgDn per scherm · g G begin en eind"),
@@ -1197,6 +1210,7 @@ fn draw_help(frame: &mut term::Frame) {
         ("spatie", "bestand aan- of afvinken"),
         ("c m v", "kopiëren · knippen · plakken"),
         ("p", "in een bestand kijken · j k op en neer · d f zijwaarts"),
+        ("", "   json/xml worden opgemaakt · t toont het origineel"),
         ("x", "naar de prullenbak, na een vraag"),
         ("s u", "sorteren op naam/type/datum · omkeren"),
         (".", "verborgen bestanden tonen"),
