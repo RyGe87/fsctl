@@ -149,7 +149,7 @@ impl App {
                     detail: String::new(),
                     path: self.root.clone(),
                     depth: 0,
-                    expandable: true,
+                    expandable: fsmodel::has_subdirectory(&self.root, self.show_hidden),
                     expanded: self.expanded.contains(&self.root),
                 }];
                 if self.expanded.contains(&self.root) {
@@ -208,7 +208,9 @@ impl App {
                 detail: String::new(),
                 path: child.path.clone(),
                 depth,
-                expandable: true,
+                // A folder with nothing to unfold gets no triangle: the mark
+                // should promise something.
+                expandable: fsmodel::has_subdirectory(&child.path, self.show_hidden),
                 expanded,
             });
             if expanded {

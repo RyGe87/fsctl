@@ -74,6 +74,37 @@ pub fn read_dir(path: &Path, show_hidden: bool) -> Vec<Entry> {
         .collect()
 }
 
+/// Whether this directory holds another one — the question the tree asks to
+/// decide if a row gets a triangle.
+///
+/// Stops at the first directory it finds instead of listing everything: a
+/// folder with ten thousand files should not cost ten thousand entries just to
+/// learn that its first child is a folder. A directory we may not read answers
+/// "no", which is also what opening it would tell you.
+pub fn has_subdirectory(path: &Path, show_hidden: bool) -> bool {
+    let Ok(iter) = fs::read_dir(path) else {
+        return false;
+    };
+    for entry in iter.flatten() {
+        if !show_hidden && entry.file_name().to_string_lossy().starts_with('.') {
+            continue;
+        }
+        let is_dir = match entry.file_type() {
+            // file_type() comes free with the directory read; only a symlink
+            // costs an extra look to see what it points at.
+            Ok(kind) if kind.is_symlink() => fs::metadata(entry.path())
+                .map(|m| m.is_dir())
+                .unwrap_or(false),
+            Ok(kind) => kind.is_dir(),
+            Err(_) => false,
+        };
+        if is_dir {
+            return true;
+        }
+    }
+    false
+}
+
 /// Just the directories, for the tree on the left.
 pub fn subdirectories(path: &Path, show_hidden: bool) -> Vec<Entry> {
     let mut dirs: Vec<Entry> = read_dir(path, show_hidden)
