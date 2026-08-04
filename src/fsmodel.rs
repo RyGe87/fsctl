@@ -75,34 +75,42 @@ pub fn read_dir(path: &Path, show_hidden: bool) -> Vec<Entry> {
 }
 
 /// What the tree needs to know about a folder before drawing its row.
+///
+/// Two different questions live here, and they must not be answered the same
+/// way. The triangle is about what *unfolding* would show, so it follows the
+/// hidden-files setting — a triangle that opens onto nothing is a lie. The
+/// cross is about what is *there*, hidden files included, because a copy, a
+/// move and one day a delete act on the folder itself and not on our filtered
+/// view of it. A folder that only holds a `.env` may never be called empty.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Probe {
-    /// Holds at least one folder, so the row gets a triangle.
+    /// Holds at least one folder the pane would show.
     pub has_subdir: bool,
-    /// Holds nothing at all, so the row gets a cross.
+    /// Holds nothing whatsoever — hidden entries included.
     pub empty: bool,
+    /// Holds something, but nothing the pane is currently showing.
+    pub hidden_only: bool,
 }
 
-/// Answers both questions in one pass over the directory.
+/// Answers all of it in one pass over the directory.
 ///
-/// Stops at the first folder it finds instead of listing everything: a folder
-/// with ten thousand files should not cost ten thousand entries just to learn
-/// that its first child is a folder. A directory we may not read reports
-/// neither a triangle nor a cross — we do not know, and opening it would tell
-/// you no more.
-///
-/// "Empty" means empty as shown: with hidden files off, a folder holding only
-/// a `.DS_Store` reads as empty, which is exactly what the pane will show.
+/// Stops at the first shown folder instead of listing everything: a folder with
+/// ten thousand files should not cost ten thousand entries to learn that its
+/// first child is a folder. A directory we may not read reports nothing at all
+/// — we do not know, and opening it would tell you no more.
 pub fn probe(path: &Path, show_hidden: bool) -> Probe {
     let Ok(iter) = fs::read_dir(path) else {
         return Probe::default();
     };
-    let mut seen = false;
+    let mut anything = false;
+    let mut shown = false;
     for entry in iter.flatten() {
-        if !show_hidden && entry.file_name().to_string_lossy().starts_with('.') {
+        anything = true;
+        let hidden = entry.file_name().to_string_lossy().starts_with('.');
+        if hidden && !show_hidden {
             continue;
         }
-        seen = true;
+        shown = true;
         let is_dir = match entry.file_type() {
             // file_type() comes free with the directory read; only a symlink
             // costs an extra look to see what it points at.
@@ -116,12 +124,14 @@ pub fn probe(path: &Path, show_hidden: bool) -> Probe {
             return Probe {
                 has_subdir: true,
                 empty: false,
+                hidden_only: false,
             };
         }
     }
     Probe {
         has_subdir: false,
-        empty: !seen,
+        empty: !anything,
+        hidden_only: anything && !shown,
     }
 }
 

@@ -56,13 +56,17 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 In de boom staat vóór elke map wat je ervan mag verwachten:
 
 ```
-▾  uitgeklapt          ▸  er zitten mappen in
-×  helemaal leeg       (niets)  alleen bestanden — en die staan rechts
+▾  uitgeklapt            ▸  er zitten mappen in
+×  écht helemaal leeg    ·  ziet er leeg uit, maar bevat verborgen inhoud
+(niets)  alleen bestanden — en die staan rechts
 ```
 
-"Leeg" betekent leeg zoals getoond: staan verborgen bestanden uit, dan telt een
-map met alleen een `.DS_Store` als leeg. Zet je ze aan met `.`, dan verandert
-het teken mee.
+Het driehoekje en het kruisje beantwoorden bewust **verschillende** vragen. Het
+driehoekje gaat over wat uitklappen zou tonen, dus het volgt je `.`-instelling —
+een driehoekje dat opengaat op niets is een leugen. Het kruisje gaat over wat er
+werkelijk staat, verborgen bestanden meegeteld, want `cp` en `mv` werken op de
+map zoals die op schijf staat en niet op onze gefilterde weergave. Een map met
+alleen een `.env` erin mag dus nooit "leeg" heten; die krijgt een punt.
 
 **Mappen links, bestanden rechts.** De boom is de enige plek waar een map
 staat; de rechterkolom toont er geen. Een hele map kopiëren doe je dus met de

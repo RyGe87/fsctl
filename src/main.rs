@@ -62,6 +62,9 @@ struct Node {
     expanded: bool,
     /// Nothing inside at all — drawn with a cross instead of a triangle.
     empty: bool,
+    /// Looks empty here, but holds hidden entries that a copy or move would
+    /// carry along.
+    hidden_only: bool,
 }
 
 /// Work that must happen after the next frame, so the screen can say what it is
@@ -155,6 +158,7 @@ impl App {
                     expandable: probe.has_subdir,
                     expanded: self.expanded.contains(&self.root),
                     empty: probe.empty,
+                    hidden_only: probe.hidden_only,
                 }];
                 if self.expanded.contains(&self.root) {
                     let root = self.root.clone();
@@ -173,6 +177,7 @@ impl App {
                     expandable: false,
                     expanded: false,
                     empty: false,
+                    hidden_only: false,
                 })
                 .collect(),
             Source::Modified => self
@@ -187,6 +192,7 @@ impl App {
                     expandable: false,
                     expanded: false,
                     empty: false,
+                    hidden_only: false,
                 })
                 .collect(),
         };
@@ -220,6 +226,7 @@ impl App {
                 expandable: probe.has_subdir,
                 expanded,
                 empty: probe.empty,
+                hidden_only: probe.hidden_only,
             });
             if expanded {
                 self.push_children(&child.path, depth + 1, out);
@@ -730,13 +737,16 @@ fn left_rows(app: &App) -> Vec<Row> {
     app.nodes
         .iter()
         .map(|node| {
-            // ▾ ▸ er valt iets uit te klappen · × helemaal leeg · anders
-            // bestanden, en die staan rechts.
-            let marker = match (node.expandable, node.expanded, node.empty) {
-                (true, true, _) => "▾ ",
-                (true, false, _) => "▸ ",
-                (false, _, true) => "× ",
-                _ => "  ",
+            // ▾ ▸ er valt iets uit te klappen · × écht leeg · · alleen
+            // verborgen inhoud · niets: bestanden, en die staan rechts.
+            let marker = if node.expandable {
+                if node.expanded { "▾ " } else { "▸ " }
+            } else if node.empty {
+                "× "
+            } else if node.hidden_only {
+                "· "
+            } else {
+                "  "
             };
             let indent = "  ".repeat(node.depth);
             let room = (LEFT_WIDTH as usize).saturating_sub(indent.len() + 6);
