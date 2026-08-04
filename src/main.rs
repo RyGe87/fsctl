@@ -1525,6 +1525,60 @@ struct Built {
 }
 
 fn build_preview(path: &Path, name: &str, cols: u16, rows: u16) -> Built {
+    // An archive is not text, but it is not opaque either: the pane shows what
+    // is in it, the same listing `p` walks through. Reading the central
+    // directory costs no unpacking.
+    if archive::is_archive(path) {
+        return match archive::list(path) {
+            Ok(members) if !members.is_empty() => {
+                let room = cols as usize;
+                let shown = (rows as usize).saturating_sub(1).max(1);
+                let mut lines: Vec<markdown::Styled> = members
+                    .iter()
+                    .take(shown)
+                    .map(|m| {
+                        let style = if m.is_dir {
+                            Style::new().add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::new()
+                        };
+                        vec![
+                            (width::fit(&m.name, room.saturating_sub(10)), style),
+                            (
+                                width::fit_right(&fsmodel::human_size(m.size, m.is_dir), 9),
+                                Style::new().fg(Color::DarkGray),
+                            ),
+                        ]
+                    })
+                    .collect();
+                if members.len() > shown {
+                    lines.push(as_styled(vec![format!("… and {} more", members.len() - shown)])
+                        .remove(0));
+                }
+                Built {
+                    lines,
+                    raw: None,
+                    note: Some(format!(
+                        "{} items · p to walk through it",
+                        members.len()
+                    )),
+                    picture: false,
+                }
+            }
+            Ok(_) => Built {
+                lines: Vec::new(),
+                raw: None,
+                note: Some("the archive is empty".to_string()),
+                picture: false,
+            },
+            Err(reason) => Built {
+                lines: Vec::new(),
+                raw: None,
+                note: Some(reason),
+                picture: false,
+            },
+        };
+    }
     if image::is_image(path) {
         let (lines, note) = match image::thumbnail(path, cols as usize, rows as usize) {
             Ok((lines, note)) => (lines, note),

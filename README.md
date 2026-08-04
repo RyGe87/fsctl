@@ -304,6 +304,10 @@ there — **without unpacking**:
 └────────────────────────────────────────────────────────┘
 ```
 
+In the fixed pane the same listing appears without opening anything: reading a
+zip's central directory costs no unpacking, so an archive under the cursor shows
+what is in it the way a text file shows its first lines.
+
 `Enter` on a member reads it straight out of the archive — `unzip -p` writes it
 to its output and we read along. **No temporary file** is involved: nothing to
 clean up, and nothing you might edit by accident in a place that is about to
