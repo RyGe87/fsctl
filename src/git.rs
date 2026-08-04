@@ -126,7 +126,10 @@ fn stamp_of(repo: &Path) -> (i64, i64) {
 pub fn discover(roots: &[PathBuf], max_depth: usize) -> Vec<PathBuf> {
     let mut found = Vec::new();
     for root in roots {
-        let mut command = Command::new("/usr/bin/find");
+        let Some(finder) = crate::toolbox::get().find.clone() else {
+            return found;
+        };
+        let mut command = Command::new(finder);
         command
             .arg(root)
             .args(["-maxdepth", &max_depth.to_string()])
@@ -160,7 +163,7 @@ pub fn status(path: &Path) -> Option<Repo> {
         stamp: stamp_of(path),
     };
 
-    let mut command = Command::new("/usr/bin/git");
+    let mut command = Command::new(crate::toolbox::get().git.clone()?);
     command
         .arg("-C")
         .arg(path)

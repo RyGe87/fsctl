@@ -157,10 +157,14 @@ pub fn is_cloud(path: &Path) -> bool {
 /// the tool that already reads those flags — `st_flags` is not something Rust's
 /// standard library will show us.
 pub fn mark_dataless(entries: &mut [Entry]) {
+    // Only BSD stat reports file flags; GNU's -f asks about the filesystem.
+    let Some(stat) = crate::toolbox::get().file_flags.clone() else {
+        return;
+    };
     // A long listing would outgrow the argument limit; four hundred at a time
     // stays far below it and is still one process for an ordinary folder.
     for chunk in entries.chunks_mut(400) {
-        let mut command = std::process::Command::new("/usr/bin/stat");
+        let mut command = std::process::Command::new(&stat);
         command.args(["-f", "%Sf|%N"]);
         for entry in chunk.iter() {
             command.arg(&entry.path);
@@ -304,7 +308,10 @@ pub fn human_size(bytes: u64, is_dir: bool) -> String {
 fn local_offset() -> i64 {
     static OFFSET: OnceLock<i64> = OnceLock::new();
     *OFFSET.get_or_init(|| {
-        let Ok(out) = std::process::Command::new("/bin/date").arg("+%z").output() else {
+        let Some(date) = crate::toolbox::get().date.clone() else {
+            return 0;
+        };
+        let Ok(out) = std::process::Command::new(date).arg("+%z").output() else {
             return 0;
         };
         let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -317,6 +324,23 @@ fn local_offset() -> i64 {
         let minutes: i64 = text[3..5].parse().unwrap_or(0);
         sign * (hours * 3600 + minutes * 60)
     })
+}
+
+/// Now, in the shape the freedesktop trash wants: local time, no zone.
+pub fn now_iso() -> String {
+    let epoch = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let local = epoch + local_offset();
+    let (y, m, d) = civil_from_days(local.div_euclid(86_400));
+    let seconds = local.rem_euclid(86_400);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}",
+        seconds / 3600,
+        (seconds % 3600) / 60,
+        seconds % 60
+    )
 }
 
 /// Seconds since the epoch as `YYYY-MM-DD HH:MM`, in local time.

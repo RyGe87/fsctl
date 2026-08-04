@@ -17,6 +17,7 @@ mod markdown;
 mod ops;
 mod preview;
 mod term;
+mod toolbox;
 mod widgets;
 mod width;
 
@@ -2007,7 +2008,10 @@ fn draw_conflict(frame: &mut term::Frame, conflict: &Conflict, app: &App) {
 /// in a child answers it: the child inherits the very descriptor we are asking
 /// about. Cheaper than an isatty binding, and true to the house rule.
 fn stdout_is_terminal() -> bool {
-    std::process::Command::new("/bin/sh")
+    let Some(sh) = toolbox::get().sh.clone() else {
+        return true;
+    };
+    std::process::Command::new(sh)
         .args(["-c", "test -t 1"])
         .status()
         .map(|status| status.success())
@@ -2017,6 +2021,16 @@ fn stdout_is_terminal() -> bool {
 }
 
 fn main() -> std::io::Result<()> {
+    // What this machine can and cannot do, before anything is drawn.
+    if std::env::args().any(|a| a == "--doctor" || a == "-d") {
+        print!("{}", toolbox::report());
+        return Ok(());
+    }
+    if std::env::args().any(|a| a == "--version" || a == "-V") {
+        println!("fsctl {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     if !stdout_is_terminal() {
         eprintln!(
             "fsctl needs a terminal — its output is going somewhere else.\n\
@@ -2026,7 +2040,8 @@ fn main() -> std::io::Result<()> {
     }
 
     let start = std::env::args()
-        .nth(1)
+        .skip(1)
+        .find(|a| !a.starts_with('-'))
         .map(PathBuf::from)
         .or_else(|| std::env::current_dir().ok())
         .unwrap_or_else(dirs_home);

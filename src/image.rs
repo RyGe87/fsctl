@@ -13,6 +13,7 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::markdown::Styled;
+use crate::toolbox::{self, ImageTool};
 use crate::term::{Color, Style};
 
 /// Half a block: ink on top, paper below.
@@ -43,22 +44,43 @@ pub fn is_image(path: &Path) -> bool {
 
 /// What sips says the picture measures.
 fn dimensions(path: &Path) -> Option<(u32, u32)> {
-    let out = Command::new("/usr/bin/sips")
-        .args(["-g", "pixelWidth", "-g", "pixelHeight"])
-        .arg(path)
-        .output()
-        .ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let read = |key: &str| -> Option<u32> {
-        text.lines()
-            .find(|l| l.trim_start().starts_with(key))?
-            .rsplit(':')
-            .next()?
-            .trim()
-            .parse()
-            .ok()
-    };
-    Some((read("pixelWidth")?, read("pixelHeight")?))
+    let (kind, program) = toolbox::get().image.clone()?;
+    match kind {
+        ImageTool::Sips => {
+            let out = Command::new(program)
+                .args(["-g", "pixelWidth", "-g", "pixelHeight"])
+                .arg(path)
+                .output()
+                .ok()?;
+            let text = String::from_utf8_lossy(&out.stdout);
+            let read = |key: &str| -> Option<u32> {
+                text.lines()
+                    .find(|l| l.trim_start().starts_with(key))?
+                    .rsplit(':')
+                    .next()?
+                    .trim()
+                    .parse()
+                    .ok()
+            };
+            Some((read("pixelWidth")?, read("pixelHeight")?))
+        }
+        ImageTool::ImageMagick => {
+            // identify's own format string, and only the first frame: a gif
+            // would otherwise answer once per frame.
+            let mut command = Command::new(program);
+            if command.get_program().to_string_lossy().ends_with("magick") {
+                command.arg("identify");
+            }
+            let out = command
+                .args(["-format", "%w %h"])
+                .arg(format!("{}[0]", path.display()))
+                .output()
+                .ok()?;
+            let text = String::from_utf8_lossy(&out.stdout);
+            let mut parts = text.split_whitespace();
+            Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
+        }
+    }
 }
 
 /// The thumbnail, as rows of half-blocks, plus what it measures.
@@ -81,22 +103,49 @@ pub fn thumbnail(path: &Path, cols: usize, rows: usize) -> Result<(Vec<Styled>, 
     let width = ((source_w as f64 * scale).round() as u32).max(1);
     let height = ((source_h as f64 * scale).round() as u32).max(1);
 
-    let target = std::env::temp_dir().join(format!("fsctl-thumb-{}.bmp", std::process::id()));
-    let out = Command::new("/usr/bin/sips")
-        .args(["-z", &height.to_string(), &width.to_string()])
-        .args(["-s", "format", "bmp"])
-        .arg(path)
-        .arg("--out")
-        .arg(&target)
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        let _ = std::fs::remove_file(&target);
-        return Err("sips could not convert this".to_string());
-    }
-
-    let bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_file(&target);
+    let (kind, program) = toolbox::get()
+        .image
+        .clone()
+        .ok_or("no image tool on this machine")?;
+    let bytes = match kind {
+        ImageTool::Sips => {
+            // sips only writes to a file, so this one path needs a scratch one.
+            let target =
+                std::env::temp_dir().join(format!("fsctl-thumb-{}.bmp", std::process::id()));
+            let out = Command::new(program)
+                .args(["-z", &height.to_string(), &width.to_string()])
+                .args(["-s", "format", "bmp"])
+                .arg(path)
+                .arg("--out")
+                .arg(&target)
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !out.status.success() {
+                let _ = std::fs::remove_file(&target);
+                return Err("sips could not convert this".to_string());
+            }
+            let bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
+            let _ = std::fs::remove_file(&target);
+            bytes
+        }
+        ImageTool::ImageMagick => {
+            // ImageMagick writes to its output, so no scratch file at all.
+            let mut command = Command::new(&program);
+            if program.to_string_lossy().ends_with("magick") {
+                command.arg("convert");
+            }
+            let out = command
+                .arg(format!("{}[0]", path.display()))
+                .args(["-resize", &format!("{width}x{height}!")])
+                .arg("BMP3:-")
+                .output()
+                .map_err(|e| e.to_string())?;
+            if !out.status.success() {
+                return Err("imagemagick could not convert this".to_string());
+            }
+            out.stdout
+        }
+    };
     let picture = parse_bmp(&bytes)?;
 
     let note = format!("{source_w}×{source_h} · thumbnail {width}×{height}");

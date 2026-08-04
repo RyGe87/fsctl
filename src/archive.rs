@@ -11,6 +11,8 @@
 use std::path::Path;
 use std::process::Command;
 
+use crate::toolbox;
+
 #[derive(Debug, Clone)]
 pub struct Member {
     pub name: String,
@@ -68,12 +70,12 @@ fn run(mut command: Command) -> Result<Vec<u8>, String> {
 pub fn list(path: &Path) -> Result<Vec<Member>, String> {
     match kind(path).ok_or("not an archive")? {
         Kind::Zip => {
-            let mut c = Command::new("/usr/bin/unzip");
+            let mut c = Command::new(toolbox::get().unzip.clone().ok_or("unzip is not installed")?);
             c.arg("-l").arg(path);
             Ok(parse_unzip(&String::from_utf8_lossy(&run(c)?)))
         }
         Kind::Tar => {
-            let mut c = Command::new("/usr/bin/tar");
+            let mut c = Command::new(toolbox::get().tar.clone().ok_or("tar is not installed")?);
             c.arg("-tvf").arg(path);
             Ok(parse_tar(&String::from_utf8_lossy(&run(c)?)))
         }
@@ -157,12 +159,12 @@ fn parse_tar(text: &str) -> Vec<Member> {
 pub fn read_member(path: &Path, member: &str) -> Result<Vec<u8>, String> {
     match kind(path).ok_or("not an archive")? {
         Kind::Zip => {
-            let mut c = Command::new("/usr/bin/unzip");
+            let mut c = Command::new(toolbox::get().unzip.clone().ok_or("unzip is not installed")?);
             c.arg("-p").arg(path).arg(member);
             run(c)
         }
         Kind::Tar => {
-            let mut c = Command::new("/usr/bin/tar");
+            let mut c = Command::new(toolbox::get().tar.clone().ok_or("tar is not installed")?);
             c.arg("-xOf").arg(path).arg(member);
             run(c)
         }
@@ -174,13 +176,13 @@ pub fn read_member(path: &Path, member: &str) -> Result<Vec<u8>, String> {
 pub fn extract(path: &Path, member: &str, into: &Path) -> Result<(), String> {
     let command = match kind(path).ok_or("not an archive")? {
         Kind::Zip => {
-            let mut c = Command::new("/usr/bin/unzip");
+            let mut c = Command::new(toolbox::get().unzip.clone().ok_or("unzip is not installed")?);
             // -n: an existing file is never overwritten by an archive.
             c.arg("-n").arg(path).arg(member).arg("-d").arg(into);
             c
         }
         Kind::Tar => {
-            let mut c = Command::new("/usr/bin/tar");
+            let mut c = Command::new(toolbox::get().tar.clone().ok_or("tar is not installed")?);
             c.arg("-xf").arg(path).arg("-C").arg(into).arg(member);
             c
         }

@@ -14,6 +14,8 @@
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
+
+use crate::toolbox::{self, JsonTool};
 use std::time::Duration;
 
 /// How much we are willing to read. Enough to fill any screen several times
@@ -42,25 +44,39 @@ pub enum Preview {
     NotText(String),
 }
 
-/// The tool that lays out this kind of file, if macOS has one.
+/// The tool that lays out this kind of file, if this machine has one.
 fn formatter(path: &Path) -> Option<(&'static str, Command)> {
+    let tools = toolbox::get();
     let extension = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     match extension.as_str() {
-        "json" | "geojson" | "webmanifest" | "jsonc" => {
-            let mut c = Command::new("/usr/bin/plutil");
-            c.args(["-convert", "json", "-r", "-o", "-", "--"]).arg(path);
-            Some(("plutil", c))
-        }
+        "json" | "geojson" | "webmanifest" | "jsonc" => match tools.json.clone()? {
+            (JsonTool::Plutil, program) => {
+                let mut c = Command::new(program);
+                c.args(["-convert", "json", "-r", "-o", "-", "--"]).arg(path);
+                Some(("plutil", c))
+            }
+            (JsonTool::Jq, program) => {
+                let mut c = Command::new(program);
+                c.arg(".").arg(path);
+                Some(("jq", c))
+            }
+            (JsonTool::Python, program) => {
+                let mut c = Command::new(program);
+                c.args(["-m", "json.tool", "--indent", "2"]).arg(path);
+                Some(("python3", c))
+            }
+        },
+        // A property list is an Apple format; elsewhere there is nobody to ask.
         "plist" | "entitlements" | "strings" => {
-            let mut c = Command::new("/usr/bin/plutil");
+            let mut c = Command::new(tools.plutil.clone()?);
             c.args(["-convert", "xml1", "-o", "-", "--"]).arg(path);
             Some(("plutil", c))
         }
         "xml" | "svg" | "xsl" | "xsd" | "xib" | "storyboard" | "pbxproj" | "rss" | "atom" => {
-            let mut c = Command::new("/usr/bin/xmllint");
+            let mut c = Command::new(tools.xmllint.clone()?);
             c.arg("--format").arg(path);
             Some(("xmllint", c))
         }
@@ -129,7 +145,10 @@ pub fn read(path: &Path) -> Preview {
         if !size_ok {
             return Preview::NotText("binary plist, too large to convert".to_string());
         }
-        let mut c = Command::new("/usr/bin/plutil");
+        let Some(plutil) = toolbox::get().plutil.clone() else {
+            return Preview::NotText("binary plist, and no plutil here".to_string());
+        };
+        let mut c = Command::new(plutil);
         c.args(["-convert", "xml1", "-o", "-", "--"]).arg(path);
         return match format_with(c, Duration::from_secs(5)) {
             Ok(text) => Preview::Text {

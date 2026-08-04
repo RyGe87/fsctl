@@ -9,6 +9,8 @@
 //! `; rm -rf ~` is just an awkward name.
 
 use std::path::{Path, PathBuf};
+
+use crate::toolbox::{self, CopyStyle, TrashStyle};
 use std::process::{Command, Stdio};
 
 use std::time::Duration;
@@ -166,17 +168,30 @@ pub fn paste(clip: &Clipboard, dest: &Path, how: Resolution) -> Outcome {
 /// bytes on disk. It refuses across volumes and on other filesystems, and then
 /// plain `-R` does the ordinary thing.
 fn copy(src: &Path, target: &Path) -> Result<(), String> {
-    match run("/bin/cp", &["-Rc"], src, target) {
-        Ok(()) => Ok(()),
-        Err(_) => run("/bin/cp", &["-R"], src, target),
+    let tools = toolbox::get();
+    let cp = tools.cp.as_ref().ok_or("no cp on this machine")?;
+    match tools.copy_style {
+        // The clone first; it refuses across volumes and on other filesystems,
+        // and then plain -R does the ordinary thing.
+        CopyStyle::Bsd => match run(cp, &["-Rc"], src, target) {
+            Ok(()) => Ok(()),
+            Err(_) => run(cp, &["-R"], src, target),
+        },
+        // -a keeps what -Rc keeps; the reflink clones where the filesystem can
+        // and quietly copies where it cannot.
+        CopyStyle::Gnu => match run(cp, &["-a", "--reflink=auto"], src, target) {
+            Ok(()) => Ok(()),
+            Err(_) => run(cp, &["-a"], src, target),
+        },
     }
 }
 
 fn move_to(src: &Path, target: &Path) -> Result<(), String> {
-    run("/bin/mv", &["-f"], src, target)
+    let mv = toolbox::get().mv.as_ref().ok_or("no mv on this machine")?;
+    run(mv, &["-f"], src, target)
 }
 
-fn run(program: &str, flags: &[&str], src: &Path, target: &Path) -> Result<(), String> {
+fn run(program: &Path, flags: &[&str], src: &Path, target: &Path) -> Result<(), String> {
     let out = Command::new(program)
         .args(flags)
         .arg(src)
@@ -216,12 +231,18 @@ pub fn trash(items: &[PathBuf]) -> Outcome {
         return outcome;
     }
     // An escape hatch for anyone who would rather not have Finder involved at
-    // all: FSCTL_TRASH=plain moves to ~/.Trash and never asks it.
-    if std::env::var("FSCTL_TRASH").as_deref() == Ok("plain") {
+    // all: FSCTL_TRASH=plain skips it and moves the files itself.
+    let tools = toolbox::get();
+    if std::env::var("FSCTL_TRASH").as_deref() == Ok("plain")
+        || tools.trash == TrashStyle::Freedesktop
+    {
         return by_hand(items, outcome);
     }
+    let Some(osascript) = tools.osascript.as_ref() else {
+        return by_hand(items, outcome);
+    };
 
-    let mut script = Command::new("/usr/bin/osascript");
+    let mut script = Command::new(osascript);
     script
         .args(["-e", "on run argv"])
         .args(["-e", "set out to {}"])
@@ -247,33 +268,89 @@ pub fn trash(items: &[PathBuf]) -> Outcome {
 /// The fallback, and the whole of it when Finder is not wanted: move into
 /// `~/.Trash` ourselves. Recoverable, but without put-back.
 fn by_hand(items: &[PathBuf], mut outcome: Outcome) -> Outcome {
-    let trash = match std::env::var("HOME") {
-        Ok(home) => Path::new(&home).join(".Trash"),
-        Err(_) => {
-            outcome.errors.push("no home directory".to_string());
-            return outcome;
-        }
+    let Ok(home) = std::env::var("HOME") else {
+        outcome.errors.push("no home directory".to_string());
+        return outcome;
     };
+    let freedesktop = toolbox::get().trash == TrashStyle::Freedesktop;
+    // The spec puts the trash under XDG_DATA_HOME and wants a note beside every
+    // file saying where it came from; macOS just has ~/.Trash.
+    let trash = if freedesktop {
+        std::env::var("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| Path::new(&home).join(".local/share"))
+            .join("Trash")
+    } else {
+        Path::new(&home).join(".Trash")
+    };
+    let files = if freedesktop {
+        trash.join("files")
+    } else {
+        trash.clone()
+    };
+    if std::fs::create_dir_all(&files).is_err() {
+        outcome
+            .errors
+            .push(format!("cannot reach {}", files.display()));
+        return outcome;
+    }
+
     for item in items {
         let Some(name) = item.file_name().map(|n| n.to_string_lossy().to_string()) else {
             continue;
         };
-        let target = if trash.join(&name).symlink_metadata().is_ok() {
-            free_name(&trash, &name)
+        let target = if files.join(&name).symlink_metadata().is_ok() {
+            free_name(&files, &name)
         } else {
-            trash.join(&name)
+            files.join(&name)
         };
-        match move_to(item, &target) {
-            Ok(()) => outcome.done += 1,
-            Err(e) => outcome.errors.push(format!("{name}: {e}")),
+        if let Err(e) = move_to(item, &target) {
+            outcome.errors.push(format!("{name}: {e}"));
+            continue;
+        }
+        outcome.done += 1;
+        if freedesktop {
+            write_trashinfo(&trash, &target, item);
         }
     }
-    if outcome.done > 0 && outcome.errors.is_empty() {
+    if outcome.done > 0 && outcome.errors.is_empty() && !freedesktop {
         outcome
             .errors
             .push("via ~/.Trash, without Put Back".to_string());
     }
     outcome
+}
+
+/// The note the freedesktop spec wants beside a trashed file, so a desktop can
+/// put it back where it came from.
+fn write_trashinfo(trash: &Path, moved: &Path, came_from: &Path) {
+    let Some(name) = moved.file_name().map(|n| n.to_string_lossy().to_string()) else {
+        return;
+    };
+    let info = trash.join("info");
+    if std::fs::create_dir_all(&info).is_err() {
+        return;
+    }
+    let text = format!(
+        "[Trash Info]\nPath={}\nDeletionDate={}\n",
+        percent_encode(&came_from.display().to_string()),
+        crate::fsmodel::now_iso()
+    );
+    let _ = std::fs::write(info.join(format!("{name}.trashinfo")), text);
+}
+
+/// The spec stores the original path URL-encoded, slashes and all else intact.
+fn percent_encode(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for byte in path.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 /// Packs things into a zip, in the folder you are standing in.
@@ -310,7 +387,8 @@ pub fn compress(items: &[PathBuf], dest_dir: &Path) -> Result<PathBuf, String> {
         dest_dir.join(format!("{stem}.zip"))
     };
 
-    let out = Command::new("/usr/bin/zip")
+    let zip = toolbox::get().zip.as_ref().ok_or("no zip on this machine")?;
+    let out = Command::new(zip)
         .current_dir(&base)
         .args(["-r", "-q"])
         .arg(&target)
@@ -342,7 +420,11 @@ fn common_parent(items: &[PathBuf]) -> Option<PathBuf> {
 
 /// Hands a file to whatever macOS thinks should open it.
 pub fn open(path: &Path) -> Result<(), String> {
-    Command::new("/usr/bin/open")
+    let opener = toolbox::get()
+        .open
+        .as_ref()
+        .ok_or("no way to open files on this machine")?;
+    Command::new(opener)
         .arg(path)
         .status()
         .map_err(|e| e.to_string())
