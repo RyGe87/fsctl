@@ -361,6 +361,8 @@ impl App {
                 self.rebuild_left();
                 self.rebuild_right();
             }
+            KeyCode::Char('w') => self.root_here(),
+            KeyCode::Char('W') => self.root_up(),
             KeyCode::Char('c') => self.yank(Mode::Copy),
             KeyCode::Char('x') => self.yank(Mode::Cut),
             KeyCode::Char('v') => self.paste(),
@@ -514,6 +516,51 @@ impl App {
         }
         self.right_cursor = 0;
         self.right_offset = 0;
+        self.rebuild_right();
+    }
+
+    /// Makes the folder under the cursor the top of the tree.
+    ///
+    /// Works from any source: pick a repository in the second view, press the
+    /// key, and the tree opens rooted there.
+    fn root_here(&mut self) {
+        let Some(path) = self.current_path() else {
+            return;
+        };
+        if !path.is_dir() {
+            return;
+        }
+        self.source = Source::Folders;
+        self.root = path.clone();
+        self.expanded = BTreeSet::from([path.clone()]);
+        self.left_cursor = 0;
+        self.left_offset = 0;
+        self.right_cursor = 0;
+        self.right_offset = 0;
+        self.focus = Focus::Left;
+        self.status = format!("wortel: {}", shorten(&path));
+        self.rebuild_left();
+        self.rebuild_right();
+    }
+
+    /// Lifts the tree one level, keeping the old root open and under the
+    /// cursor so you can see where you came from.
+    fn root_up(&mut self) {
+        let Some(parent) = self.root.parent().map(|p| p.to_path_buf()) else {
+            self.status = "hier houdt het op".into();
+            return;
+        };
+        let previous = self.root.clone();
+        self.source = Source::Folders;
+        self.root = parent.clone();
+        self.expanded.insert(parent.clone());
+        self.expanded.insert(previous.clone());
+        self.rebuild_left();
+        if let Some(i) = self.nodes.iter().position(|n| n.path == previous) {
+            self.left_cursor = i;
+        }
+        self.focus = Focus::Left;
+        self.status = format!("wortel: {}", shorten(&parent));
         self.rebuild_right();
     }
 
@@ -850,7 +897,7 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     );
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
-            " 1/2/3 bron · Tab kolom · spatie vink aan · c kopieer (links: de map) · x knip · v plak · s sorteer · . verborgen · r ververs · q sluit",
+            " 1/2/3 bron · Tab kolom · w wortel hier · W wortel omhoog · spatie vink aan · c kopieer · x knip · v plak · s sorteer · . verborgen · r ververs · q sluit",
             Style::new().fg(Color::DarkGray),
         ))),
         help,

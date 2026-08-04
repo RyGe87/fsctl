@@ -42,7 +42,9 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `j` `k` · pijltjes | omhoog en omlaag |
 | `l` `→` | map uitklappen, of naar rechts |
 | `h` `←` | map dichtklappen, of terug naar links |
-| `Enter` | map: erin · bestand: openen met `open` |
+| `Enter` | bestand openen met `open` |
+| `w` | de map onder de cursor wordt de wortel van de boom |
+| `W` | de wortel één map omhoog |
 | `spatie` | bestand aan- of afvinken |
 | `c` `x` `v` | kopiëren · knippen · plakken |
 | `s` `u` | sorteren (naam/type/datum) · omkeren |
