@@ -74,21 +74,35 @@ pub fn read_dir(path: &Path, show_hidden: bool) -> Vec<Entry> {
         .collect()
 }
 
-/// Whether this directory holds another one — the question the tree asks to
-/// decide if a row gets a triangle.
+/// What the tree needs to know about a folder before drawing its row.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Probe {
+    /// Holds at least one folder, so the row gets a triangle.
+    pub has_subdir: bool,
+    /// Holds nothing at all, so the row gets a cross.
+    pub empty: bool,
+}
+
+/// Answers both questions in one pass over the directory.
 ///
-/// Stops at the first directory it finds instead of listing everything: a
-/// folder with ten thousand files should not cost ten thousand entries just to
-/// learn that its first child is a folder. A directory we may not read answers
-/// "no", which is also what opening it would tell you.
-pub fn has_subdirectory(path: &Path, show_hidden: bool) -> bool {
+/// Stops at the first folder it finds instead of listing everything: a folder
+/// with ten thousand files should not cost ten thousand entries just to learn
+/// that its first child is a folder. A directory we may not read reports
+/// neither a triangle nor a cross — we do not know, and opening it would tell
+/// you no more.
+///
+/// "Empty" means empty as shown: with hidden files off, a folder holding only
+/// a `.DS_Store` reads as empty, which is exactly what the pane will show.
+pub fn probe(path: &Path, show_hidden: bool) -> Probe {
     let Ok(iter) = fs::read_dir(path) else {
-        return false;
+        return Probe::default();
     };
+    let mut seen = false;
     for entry in iter.flatten() {
         if !show_hidden && entry.file_name().to_string_lossy().starts_with('.') {
             continue;
         }
+        seen = true;
         let is_dir = match entry.file_type() {
             // file_type() comes free with the directory read; only a symlink
             // costs an extra look to see what it points at.
@@ -99,10 +113,16 @@ pub fn has_subdirectory(path: &Path, show_hidden: bool) -> bool {
             Err(_) => false,
         };
         if is_dir {
-            return true;
+            return Probe {
+                has_subdir: true,
+                empty: false,
+            };
         }
     }
-    false
+    Probe {
+        has_subdir: false,
+        empty: !seen,
+    }
 }
 
 /// Just the directories, for the tree on the left.

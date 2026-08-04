@@ -60,6 +60,8 @@ struct Node {
     depth: usize,
     expandable: bool,
     expanded: bool,
+    /// Nothing inside at all — drawn with a cross instead of a triangle.
+    empty: bool,
 }
 
 /// Work that must happen after the next frame, so the screen can say what it is
@@ -144,13 +146,15 @@ impl App {
         let previous = self.current_path();
         self.nodes = match self.source {
             Source::Folders => {
+                let probe = fsmodel::probe(&self.root, self.show_hidden);
                 let mut nodes = vec![Node {
                     label: root_label(&self.root),
                     detail: String::new(),
                     path: self.root.clone(),
                     depth: 0,
-                    expandable: fsmodel::has_subdirectory(&self.root, self.show_hidden),
+                    expandable: probe.has_subdir,
                     expanded: self.expanded.contains(&self.root),
+                    empty: probe.empty,
                 }];
                 if self.expanded.contains(&self.root) {
                     let root = self.root.clone();
@@ -168,6 +172,7 @@ impl App {
                     depth: 0,
                     expandable: false,
                     expanded: false,
+                    empty: false,
                 })
                 .collect(),
             Source::Modified => self
@@ -181,6 +186,7 @@ impl App {
                     depth: 0,
                     expandable: false,
                     expanded: false,
+                    empty: false,
                 })
                 .collect(),
         };
@@ -203,15 +209,17 @@ impl App {
         }
         for child in fsmodel::subdirectories(dir, self.show_hidden) {
             let expanded = self.expanded.contains(&child.path);
+            // A folder with nothing to unfold gets no triangle: the mark
+            // should promise something.
+            let probe = fsmodel::probe(&child.path, self.show_hidden);
             out.push(Node {
                 label: child.name.clone(),
                 detail: String::new(),
                 path: child.path.clone(),
                 depth,
-                // A folder with nothing to unfold gets no triangle: the mark
-                // should promise something.
-                expandable: fsmodel::has_subdirectory(&child.path, self.show_hidden),
+                expandable: probe.has_subdir,
                 expanded,
+                empty: probe.empty,
             });
             if expanded {
                 self.push_children(&child.path, depth + 1, out);
@@ -722,12 +730,13 @@ fn left_rows(app: &App) -> Vec<Row> {
     app.nodes
         .iter()
         .map(|node| {
-            let marker = if !node.expandable {
-                "  "
-            } else if node.expanded {
-                "▾ "
-            } else {
-                "▸ "
+            // ▾ ▸ er valt iets uit te klappen · × helemaal leeg · anders
+            // bestanden, en die staan rechts.
+            let marker = match (node.expandable, node.expanded, node.empty) {
+                (true, true, _) => "▾ ",
+                (true, false, _) => "▸ ",
+                (false, _, true) => "× ",
+                _ => "  ",
             };
             let indent = "  ".repeat(node.depth);
             let room = (LEFT_WIDTH as usize).saturating_sub(indent.len() + 6);

@@ -53,6 +53,17 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `Esc` | selectie wissen, daarna het klembord |
 | `q` | sluiten |
 
+In de boom staat vóór elke map wat je ervan mag verwachten:
+
+```
+▾  uitgeklapt          ▸  er zitten mappen in
+×  helemaal leeg       (niets)  alleen bestanden — en die staan rechts
+```
+
+"Leeg" betekent leeg zoals getoond: staan verborgen bestanden uit, dan telt een
+map met alleen een `.DS_Store` als leeg. Zet je ze aan met `.`, dan verandert
+het teken mee.
+
 **Mappen links, bestanden rechts.** De boom is de enige plek waar een map
 staat; de rechterkolom toont er geen. Een hele map kopiëren doe je dus met de
 cursor in de boom: `c` of `x` pakt daar de map waar je op staat. In de
