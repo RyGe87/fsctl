@@ -263,7 +263,7 @@ Wat je daar ziet staan, staat er niet noodzakelijk *echt*. macOS zet de vlag
 grootte, geen bytes. Die krijgen een **☁** in de typekolom:
 
 ```
-▢ github-recovery-codes.txt     ☁ txt
+▢ jaarverslag-2025.pdf          ☁ pdf
 ```
 
 Bekijken (`p`) of openen (`Enter`) dwingt dan een download af, en daar vraagt
@@ -271,8 +271,8 @@ fsctl eerst naar — met de omvang erbij, want dat is wat het kost:
 
 ```
 ┌ Uit de cloud ────────────────────────────────────────────┐
-│github-recovery-codes.txt                                 │
-│staat in de cloud, niet op deze schijf (206 B)            │
+│jaarverslag-2025.pdf                                      │
+│staat in de cloud, niet op deze schijf (4,2 M)            │
 │                                                          │
 │[Enter] ophalen en bekijken    [Esc] laten staan          │
 │Het scherm staat stil zolang het binnenkomt.              │

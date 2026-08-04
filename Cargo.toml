@@ -7,6 +7,11 @@ description = "A two-pane terminal file manager that asks the system instead of 
 authors = ["Geert Rymenants"]
 license = "MIT"
 readme = "README.md"
+repository = "https://github.com/RyGe87/fsctl"
+homepage = "https://github.com/RyGe87/fsctl"
+keywords = ["file-manager", "tui", "terminal", "macos", "cli"]
+categories = ["command-line-utilities", "filesystem"]
+exclude = ["/target"]
 
 # Nothing here, and nothing planned. The terminal layer is our own (src/term.rs,
 # carried over from sshctl), the file work belongs to /bin/cp and /bin/mv, and
