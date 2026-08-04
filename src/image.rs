@@ -42,45 +42,25 @@ pub fn is_image(path: &Path) -> bool {
     )
 }
 
-/// What sips says the picture measures.
-fn dimensions(path: &Path) -> Option<(u32, u32)> {
-    let (kind, program) = toolbox::get().image.clone()?;
-    match kind {
-        ImageTool::Sips => {
-            let out = Command::new(program)
-                .args(["-g", "pixelWidth", "-g", "pixelHeight"])
-                .arg(path)
-                .output()
-                .ok()?;
-            let text = String::from_utf8_lossy(&out.stdout);
-            let read = |key: &str| -> Option<u32> {
-                text.lines()
-                    .find(|l| l.trim_start().starts_with(key))?
-                    .rsplit(':')
-                    .next()?
-                    .trim()
-                    .parse()
-                    .ok()
-            };
-            Some((read("pixelWidth")?, read("pixelHeight")?))
-        }
-        ImageTool::ImageMagick => {
-            // identify's own format string, and only the first frame: a gif
-            // would otherwise answer once per frame.
-            let mut command = Command::new(program);
-            if command.get_program().to_string_lossy().ends_with("magick") {
-                command.arg("identify");
-            }
-            let out = command
-                .args(["-format", "%w %h"])
-                .arg(format!("{}[0]", path.display()))
-                .output()
-                .ok()?;
-            let text = String::from_utf8_lossy(&out.stdout);
-            let mut parts = text.split_whitespace();
-            Some((parts.next()?.parse().ok()?, parts.next()?.parse().ok()?))
-        }
-    }
+/// What sips says the picture measures. Only sips needs asking: ImageMagick
+/// can fit a picture into a box in the same call that converts it.
+fn sips_dimensions(program: &Path, path: &Path) -> Option<(u32, u32)> {
+    let out = Command::new(program)
+        .args(["-g", "pixelWidth", "-g", "pixelHeight"])
+        .arg(path)
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let read = |key: &str| -> Option<u32> {
+        text.lines()
+            .find(|l| l.trim_start().starts_with(key))?
+            .rsplit(':')
+            .next()?
+            .trim()
+            .parse()
+            .ok()
+    };
+    Some((read("pixelWidth")?, read("pixelHeight")?))
 }
 
 /// The thumbnail, as rows of half-blocks, plus what it measures.
@@ -88,31 +68,31 @@ pub fn thumbnail(path: &Path, cols: usize, rows: usize) -> Result<(Vec<Styled>, 
     if cols < 4 || rows < 2 {
         return Err("not enough room".to_string());
     }
-    let (source_w, source_h) = dimensions(path).ok_or("sips cannot read this file")?;
-    if source_w == 0 || source_h == 0 {
-        return Err("no dimensions".to_string());
-    }
-
     // Two pixels to a row, and never bigger than the picture itself: blowing a
     // 16×16 icon up to full width only makes it blurry.
-    let room_w = cols as u32;
-    let room_h = (rows as u32) * 2;
-    let scale = (room_w as f64 / source_w as f64)
-        .min(room_h as f64 / source_h as f64)
-        .min(1.0);
-    let width = ((source_w as f64 * scale).round() as u32).max(1);
-    let height = ((source_h as f64 * scale).round() as u32).max(1);
-
+    let (room_w, room_h) = (cols as u32, (rows as u32) * 2);
     let (kind, program) = toolbox::get()
         .image
         .clone()
         .ok_or("no image tool on this machine")?;
-    let bytes = match kind {
+
+    let (bytes, source) = match kind {
         ImageTool::Sips => {
+            let (source_w, source_h) =
+                sips_dimensions(&program, path).ok_or("sips cannot read this file")?;
+            if source_w == 0 || source_h == 0 {
+                return Err("no dimensions".to_string());
+            }
+            let scale = (room_w as f64 / source_w as f64)
+                .min(room_h as f64 / source_h as f64)
+                .min(1.0);
+            let width = ((source_w as f64 * scale).round() as u32).max(1);
+            let height = ((source_h as f64 * scale).round() as u32).max(1);
+
             // sips only writes to a file, so this one path needs a scratch one.
             let target =
                 std::env::temp_dir().join(format!("fsctl-thumb-{}.bmp", std::process::id()));
-            let out = Command::new(program)
+            let out = Command::new(&program)
                 .args(["-z", &height.to_string(), &width.to_string()])
                 .args(["-s", "format", "bmp"])
                 .arg(path)
@@ -126,29 +106,41 @@ pub fn thumbnail(path: &Path, cols: usize, rows: usize) -> Result<(Vec<Styled>, 
             }
             let bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
             let _ = std::fs::remove_file(&target);
-            bytes
+            (bytes, Some((source_w, source_h)))
         }
         ImageTool::ImageMagick => {
-            // ImageMagick writes to its output, so no scratch file at all.
+            // `WxH>` means "fit inside, and only ever shrink" — the same rule,
+            // stated to the tool instead of computed for it. And it writes to
+            // its output, so there is no scratch file at all.
             let mut command = Command::new(&program);
             if program.to_string_lossy().ends_with("magick") {
                 command.arg("convert");
             }
             let out = command
                 .arg(format!("{}[0]", path.display()))
-                .args(["-resize", &format!("{width}x{height}!")])
+                .args(["-resize", &format!("{room_w}x{room_h}>")])
                 .arg("BMP3:-")
                 .output()
                 .map_err(|e| e.to_string())?;
             if !out.status.success() {
-                return Err("imagemagick could not convert this".to_string());
+                return Err(String::from_utf8_lossy(&out.stderr)
+                    .lines()
+                    .next()
+                    .unwrap_or("imagemagick could not convert this")
+                    .rsplit(": ")
+                    .next()
+                    .unwrap_or("imagemagick could not convert this")
+                    .to_string());
             }
-            out.stdout
+            (out.stdout, None)
         }
     };
-    let picture = parse_bmp(&bytes)?;
 
-    let note = format!("{source_w}×{source_h} · thumbnail {width}×{height}");
+    let picture = parse_bmp(&bytes)?;
+    let note = match source {
+        Some((w, h)) => format!("{w}×{h} · thumbnail {}×{}", picture.width, picture.height),
+        None => format!("thumbnail {}×{}", picture.width, picture.height),
+    };
     Ok((to_blocks(&picture), note))
 }
 
