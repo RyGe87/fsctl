@@ -878,7 +878,31 @@ fn draw_conflict(frame: &mut term::Frame, conflict: &Conflict, app: &App) {
 
 // ---------------------------------------------------------------------- main --
 
+/// Is our own stdout a terminal?
+///
+/// Without one there is nobody to draw for and no keys will ever arrive, and
+/// the tool would sit there for ever looking like it did nothing. `test -t 1`
+/// in a child answers it: the child inherits the very descriptor we are asking
+/// about. Cheaper than an isatty binding, and true to the house rule.
+fn stdout_is_terminal() -> bool {
+    std::process::Command::new("/bin/sh")
+        .args(["-c", "test -t 1"])
+        .status()
+        .map(|status| status.success())
+        // If we cannot even ask, assume the best and let the user see what
+        // happens rather than refusing to start.
+        .unwrap_or(true)
+}
+
 fn main() -> std::io::Result<()> {
+    if !stdout_is_terminal() {
+        eprintln!(
+            "fsctl heeft een terminal nodig — de uitvoer gaat nu ergens anders heen.\n\
+             Start hem rechtstreeks in een terminalvenster, zonder pipe of omleiding."
+        );
+        std::process::exit(2);
+    }
+
     let start = std::env::args()
         .nth(1)
         .map(PathBuf::from)
