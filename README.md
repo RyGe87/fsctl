@@ -43,7 +43,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `l` `→` | map uitklappen, of naar rechts |
 | `h` `←` | map dichtklappen, of terug naar links |
 | `Enter` | map: erin · bestand: openen met `open` |
-| `spatie` | aan- of afvinken |
+| `spatie` | bestand aan- of afvinken |
 | `c` `x` `v` | kopiëren · knippen · plakken |
 | `s` `u` | sorteren (naam/type/datum) · omkeren |
 | `.` | verborgen bestanden tonen |
@@ -51,10 +51,16 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `Esc` | selectie wissen, daarna het klembord |
 | `q` | sluiten |
 
+**Mappen links, bestanden rechts.** De boom is de enige plek waar een map
+staat; de rechterkolom toont er geen. Een hele map kopiëren doe je dus met de
+cursor in de boom: `c` of `x` pakt daar de map waar je op staat. In de
+rechterkolom werken ze op wat je hebt aangevinkt, of anders op de regel waar je
+staat.
+
 ## De bronnen
 
-- **Mappen** — de gewone boom, mappen eerst, natuurlijke sortering (`v2` vóór
-  `v10`), symlinks als symlink.
+- **Mappen** — de gewone boom, natuurlijke sortering (`v2` vóór `v10`),
+  symlinks als symlink.
 - **Repo's** — elke git-repo onder je zoekpaden, met tak, aantal wijzigingen en
   ↑↓ tegenover de remote.
 - **Onopgeslagen** — alleen de repo's mét wijzigingen; rechts elk gewijzigd of

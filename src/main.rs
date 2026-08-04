@@ -256,8 +256,13 @@ impl App {
                     })
                     .collect()
             }
+            // Mappen horen links, bestanden rechts: de boom is de enige plek
+            // waar een map staat, dus de rechterkolom toont er geen.
             _ => {
-                let mut items = fsmodel::read_dir(&path, self.show_hidden);
+                let mut items: Vec<Entry> = fsmodel::read_dir(&path, self.show_hidden)
+                    .into_iter()
+                    .filter(|e| !e.is_dir)
+                    .collect();
                 fsmodel::sort(&mut items, self.sort, self.reverse);
                 self.attach_git(&path, &mut items);
                 items
@@ -530,8 +535,12 @@ impl App {
     }
 
     /// What a copy or cut acts on: everything ticked, or else the row you are
-    /// standing on.
+    /// standing on — and in the tree that row is a folder, which is how whole
+    /// folders still get copied now that they no longer sit on the right.
     fn targets(&self) -> Vec<PathBuf> {
+        if self.focus == Focus::Left {
+            return self.current_path().into_iter().collect();
+        }
         if !self.selection.is_empty() {
             return self.selection.iter().cloned().collect();
         }
@@ -551,7 +560,16 @@ impl App {
             Mode::Copy => "kopiëren",
             Mode::Cut => "verplaatsen",
         };
-        self.status = format!("{} item(s) klaar om te {verb}", items.len());
+        self.status = if self.focus == Focus::Left {
+            let name = items
+                .first()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            format!("map {name} klaar om te {verb}")
+        } else {
+            format!("{} bestand(en) klaar om te {verb}", items.len())
+        };
         self.clipboard = Some(Clipboard { items, mode });
     }
 
@@ -651,12 +669,24 @@ fn left_rows(app: &App) -> Vec<Row> {
             };
             let indent = "  ".repeat(node.depth);
             let room = (LEFT_WIDTH as usize).saturating_sub(indent.len() + 6);
+            // Emphasis by weight, not by colour: sshctl keeps Blue for a
+            // highlight background only, and dark blue text is unreadable on
+            // half the themes out there.
             let mut segments = vec![
                 (
                     format!("{indent}{marker}"),
                     Style::new().fg(Color::DarkGray),
                 ),
-                (width::truncate(&node.label, room), Style::new().fg(Color::Blue)),
+                (
+                    // The root is a whole path, and its tail says where you
+                    // are; a child is a single name and reads from the front.
+                    if node.depth == 0 {
+                        width::truncate_start(&node.label, room)
+                    } else {
+                        width::truncate(&node.label, room)
+                    },
+                    Style::new().add_modifier(Modifier::BOLD),
+                ),
             ];
             if !node.detail.is_empty() {
                 segments.push((
@@ -688,7 +718,7 @@ fn right_rows(app: &App, width_cells: usize) -> Vec<Row> {
             let style = if item.is_link {
                 Style::new().fg(Color::Cyan)
             } else if item.is_dir {
-                Style::new().fg(Color::Blue).add_modifier(Modifier::BOLD)
+                Style::new().add_modifier(Modifier::BOLD)
             } else {
                 Style::new()
             };
@@ -793,9 +823,13 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
         .current_path()
         .map(|p| shorten(&p))
         .unwrap_or_else(|| "—".to_string());
+    let noun = match app.source {
+        Source::Modified => "wijziging(en)",
+        _ => "bestand(en)",
+    };
     let title = format!(
-        " {} — {} item(s) ",
-        width::truncate_start(&here, right.width.saturating_sub(18) as usize),
+        " {} — {} {noun} ",
+        width::truncate_start(&here, right.width.saturating_sub(22) as usize),
         app.items.len()
     );
     frame.render_widget(
@@ -816,7 +850,7 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     );
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
-            " 1/2/3 bron · Tab kolom · spatie selecteer · c kopieer · x knip · v plak · s sorteer · . verborgen · r ververs · q sluit",
+            " 1/2/3 bron · Tab kolom · spatie vink aan · c kopieer (links: de map) · x knip · v plak · s sorteer · . verborgen · r ververs · q sluit",
             Style::new().fg(Color::DarkGray),
         ))),
         help,
