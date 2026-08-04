@@ -81,6 +81,8 @@ enum Pending {
     ScanRepos,
     /// Pull a file down from the cloud, then do what was asked with it.
     Fetch(FetchAsk),
+    /// Zipping can take a while on a big folder; say so before it starts.
+    Compress { items: Vec<PathBuf>, dest: PathBuf },
     Refresh,
     /// Finder does the trashing, and a busy Finder should not look like a
     /// frozen tool: the screen says so first, then we wait.
@@ -482,6 +484,7 @@ impl App {
             KeyCode::Char('?') => self.modal = Some(Modal::Help),
             KeyCode::Char('p') => self.look(),
             KeyCode::Char('x') | KeyCode::Delete => self.delete(),
+            KeyCode::Char('z') => self.compress(),
             KeyCode::Char('w') => self.root_here(),
             KeyCode::Char('W') => self.root_up(),
             KeyCode::Char('c') => self.yank(Mode::Copy),
@@ -708,7 +711,7 @@ impl App {
             KeyCode::Home | KeyCode::Char('g') => inside.cursor = 0,
             KeyCode::End | KeyCode::Char('G') => inside.cursor = last,
             KeyCode::Enter | KeyCode::Char('p') => self.look_at_member(),
-            KeyCode::Char('c') => self.take_member_out(),
+            KeyCode::Char('e') => self.take_member_out(),
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.modal = None;
             }
@@ -1097,6 +1100,27 @@ impl App {
             folders,
             concealing,
         }));
+    }
+
+    /// Packs what you picked into a zip, here.
+    fn compress(&mut self) {
+        let items = self.targets();
+        if items.is_empty() {
+            self.status = "niets om in te pakken".into();
+            return;
+        }
+        let Some(mut dest) = self.current_path() else {
+            return;
+        };
+        // Zipping the folder you are standing in puts the archive beside it,
+        // not inside it — an archive that contains itself is a riddle.
+        if items.iter().any(|item| *item == dest)
+            && let Some(parent) = dest.parent()
+        {
+            dest = parent.to_path_buf();
+        }
+        self.status = format!("{} item(s) inpakken…", items.len());
+        self.pending = Some(Pending::Compress { items, dest });
     }
 
     fn paste(&mut self) {
@@ -1536,7 +1560,7 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
 /// Everything the bottom bar used to say, at the moment you ask for it.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 17] = [
+    let rows: [(&str, &str); 18] = [
         ("1 2 3", "mappen · repo's · onopgeslagen werk"),
         ("Tab", "van kolom wisselen"),
         ("j k ↑ ↓", "bewegen · J K met tien · PgUp/PgDn per scherm"),
@@ -1547,8 +1571,9 @@ fn draw_help(frame: &mut term::Frame) {
         ("spatie", "bestand aan- of afvinken"),
         ("c m v", "kopiëren · knippen · plakken"),
         ("p", "in een bestand kijken · j k op en neer · d f zijwaarts"),
-        ("", "   in een zip: enter bekijkt, c pakt hier uit"),
+        ("", "   in een zip: enter bekijkt, e pakt hier uit"),
         ("", "   json/xml worden opgemaakt · t toont het origineel"),
+        ("z", "de selectie hier inpakken tot een zip"),
         ("x", "naar de prullenbak, na een vraag"),
         ("s u", "sorteren op naam/type/datum · omkeren"),
         (".", "verborgen bestanden tonen"),
@@ -1656,7 +1681,7 @@ fn draw_inside(frame: &mut term::Frame, inside: &Inside) {
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
             width::fit(
-                "enter bekijken   ·   c hier uitpakken   ·   esc sluiten",
+                "enter bekijken   ·   e hier uitpakken   ·   esc sluiten",
                 inner,
             ),
             Style::new().fg(Color::DarkGray),
@@ -1885,6 +1910,21 @@ fn main() -> std::io::Result<()> {
                     } else {
                         app.preview_of(ask.path.clone(), ask.name.clone());
                     }
+                    app.rebuild_right();
+                }
+                Pending::Compress { items, dest } => {
+                    let count = items.len();
+                    app.status = match ops::compress(&items, &dest) {
+                        Ok(target) => {
+                            let name = target
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_default();
+                            format!("{name} gemaakt uit {count} item(s)")
+                        }
+                        Err(e) => format!("inpakken mislukt: {e}"),
+                    };
+                    app.selection.clear();
                     app.rebuild_right();
                 }
                 Pending::Refresh => {

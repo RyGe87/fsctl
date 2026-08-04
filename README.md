@@ -48,6 +48,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `W` | de wortel één map omhoog |
 | `spatie` | bestand aan- of afvinken |
 | `c` `m` `v` | kopiëren · knippen · plakken |
+| `z` | de selectie hier inpakken tot een zip |
 | `p` | in het bestand kijken (`j`/`k` op en neer, `d`/`f` zijwaarts, `t` ruw/opgemaakt) |
 | `x` `Del` | naar de prullenbak (vraagt eerst) |
 | `s` `u` | sorteren (naam/type/datum) · omkeren |
@@ -194,7 +195,7 @@ zit — **zonder uit te pakken**:
 │  map/                                                — │
 │  map/data.json                                     8 B │
 │                                                        │
-│enter bekijken   ·   c hier uitpakken   ·   esc sluiten │
+│enter bekijken   ·   e hier uitpakken   ·   esc sluiten │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -204,12 +205,25 @@ te pas: niets om op te ruimen, en niets dat je per ongeluk bewerkt op een plek
 die straks verdwijnt. `Esc` brengt je terug naar de lijst.
 
 Openen in een andere app zit er bewust niet in, precies om die reden. Wil je
-ermee werken, dan is `c` het eerlijke antwoord: dat pakt het geselecteerde lid
+ermee werken, dan is `e` het eerlijke antwoord: dat pakt het geselecteerde lid
 uit **in de map waar je staat** — een echt bestand, op een plek die morgen nog
 bestaat. Een bestaande naam wordt daarbij nooit overschreven.
 
 DiscoveryLab-packs zijn zips, dus `p` op een `.dls` toont meteen zijn
 `pack.json`.
+
+## Inpakken
+
+`z` maakt een zip van wat je hebt aangevinkt — of van de regel waar je staat, of
+van de map onder de cursor in de boom. `zip -r` draait daarbij vanuit de diepste
+map die ze allemaal omvat, met relatieve namen, zodat het archief dezelfde vorm
+draagt als de bestanden hadden en niet het `/Users/jij/…` van de machine waarop
+het gemaakt is.
+
+Eén item leent zijn eigen naam, meerdere krijgen de naam van de map waarin ze
+landen. Pak je de map in waar je zelf in staat, dan komt het archief ernáást te
+staan — een archief dat zichzelf bevat is een raadsel. Een bestaande naam wordt
+nooit overschreven; die wordt `naam-2.zip`.
 
 ## Cloudmappen
 

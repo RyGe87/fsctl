@@ -276,6 +276,70 @@ fn by_hand(items: &[PathBuf], mut outcome: Outcome) -> Outcome {
     outcome
 }
 
+/// Packs things into a zip, in the folder you are standing in.
+///
+/// `zip -r` runs from the deepest folder that holds all of them, with relative
+/// names, so the archive carries the same shape the files had — and not the
+/// `/Users/you/…` of the machine it was made on.
+pub fn compress(items: &[PathBuf], dest_dir: &Path) -> Result<PathBuf, String> {
+    if items.is_empty() {
+        return Err("niets geselecteerd".to_string());
+    }
+    let base = common_parent(items).ok_or("geen gemeenschappelijke map")?;
+    let relative: Vec<PathBuf> = items
+        .iter()
+        .map(|p| p.strip_prefix(&base).unwrap_or(p).to_path_buf())
+        .collect();
+
+    // One item lends its own name; several take the name of the folder they
+    // are going into, which is what you would have called it yourself.
+    let stem = if items.len() == 1 {
+        items[0]
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "archief".to_string())
+    } else {
+        dest_dir
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "archief".to_string())
+    };
+    let target = if dest_dir.join(format!("{stem}.zip")).symlink_metadata().is_ok() {
+        free_name(dest_dir, &format!("{stem}.zip"))
+    } else {
+        dest_dir.join(format!("{stem}.zip"))
+    };
+
+    let out = Command::new("/usr/bin/zip")
+        .current_dir(&base)
+        .args(["-r", "-q"])
+        .arg(&target)
+        .args(&relative)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .next()
+            .unwrap_or("inpakken mislukt")
+            .trim()
+            .to_string());
+    }
+    Ok(target)
+}
+
+/// The deepest folder that holds all of them.
+fn common_parent(items: &[PathBuf]) -> Option<PathBuf> {
+    let mut base = items.first()?.parent()?.to_path_buf();
+    for item in items.iter().skip(1) {
+        let parent = item.parent()?;
+        while !parent.starts_with(&base) {
+            base = base.parent()?.to_path_buf();
+        }
+    }
+    Some(base)
+}
+
 /// Hands a file to whatever macOS thinks should open it.
 pub fn open(path: &Path) -> Result<(), String> {
     Command::new("/usr/bin/open")
