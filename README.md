@@ -263,7 +263,10 @@ rather than a different shape of it.
 This is the only format we lay out ourselves — macOS ships no tool for it.
 `snake_case_names` are left alone: an underscore inside a word is not emphasis.
 
-**HTML is read rather than shown**: `textutil` hands over WebKit's own importer,
+**HTML shows its source in the pane and reads as a page in the window.** The
+pane is where `e` writes, and you cannot write in a rendering — so there you get
+the tags, with `source · p renders it` underneath. Press `p` and the page reads
+as a page: `textutil` hands over WebKit's own importer,
 which already knows entities, encodings, tables and that a `<script>` is not
 text. On Linux `w3m`, `lynx` or `html2text` do the same. What a terminal misses
 afterwards we add ourselves — which lines were headings, found by scanning the

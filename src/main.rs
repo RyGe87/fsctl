@@ -712,7 +712,13 @@ impl App {
 
     fn preview_of(&mut self, path: PathBuf, name: String) {
         let (w, h) = self.screen;
-        let built = build_preview(&path, &name, w.saturating_sub(8), h.saturating_sub(7));
+        let built = build_preview(
+            &path,
+            &name,
+            w.saturating_sub(8),
+            h.saturating_sub(7),
+            Shown::Window,
+        );
         let widest = widest_of(&built.lines);
         self.modal = Some(Modal::Look(Look {
             name,
@@ -1632,6 +1638,14 @@ fn push_children(
 ///
 /// The same work for the window and for the pane at the bottom, so the two can
 /// never disagree about what a file looks like.
+/// Who is asking for the file: the pane, where you also write, or the window,
+/// where you only read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shown {
+    Pane,
+    Window,
+}
+
 struct Built {
     lines: Vec<markdown::Styled>,
     raw: Option<Vec<markdown::Styled>>,
@@ -1639,7 +1653,7 @@ struct Built {
     picture: bool,
 }
 
-fn build_preview(path: &Path, name: &str, cols: u16, rows: u16) -> Built {
+fn build_preview(path: &Path, name: &str, cols: u16, rows: u16, shown: Shown) -> Built {
     // An archive is not text, but it is not opaque either: the pane shows what
     // is in it, the same listing `p` walks through. Reading the central
     // directory costs no unpacking.
@@ -1718,6 +1732,17 @@ fn build_preview(path: &Path, name: &str, cols: u16, rows: u16) -> Built {
         };
     }
 
+    // A page reads as a page in the window and as its source in the pane: the
+    // pane is where e writes, and you cannot write in a rendering.
+    if html::is_html(path) && shown == Shown::Pane {
+        let source = std::fs::read_to_string(path).unwrap_or_default();
+        return Built {
+            lines: as_styled(source.lines().map(|l| l.to_string()).collect()),
+            raw: None,
+            note: Some("source · p renders it".to_string()),
+            picture: false,
+        };
+    }
     // A page is read by whoever already knows how; we only mark the headings.
     if html::is_html(path) {
         return match html::render(path) {
@@ -1999,7 +2024,8 @@ fn draw_peek(frame: &mut term::Frame, app: &mut App, area: Rect) {
             if stale {
                 let (styled, note) = match app.pane {
                     Pane::Split => {
-                        let built = build_preview(&item.path, &item.name, inner_w, inner_h);
+                        let built =
+                            build_preview(&item.path, &item.name, inner_w, inner_h, Shown::Pane);
                         (built.lines, built.note)
                     }
                     _ => {
