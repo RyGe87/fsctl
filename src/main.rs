@@ -11,6 +11,7 @@
 
 mod fsmodel;
 mod git;
+mod image;
 mod markdown;
 mod ops;
 mod preview;
@@ -115,6 +116,8 @@ struct Look {
     /// Set when the file runs on past what we read, or when it is not text at
     /// all and this is the reason why.
     note: Option<String>,
+    /// A picture gets no line numbers — there is nothing to number.
+    picture: bool,
 }
 
 enum Modal {
@@ -147,6 +150,8 @@ struct App {
     pending: Option<Pending>,
     left_height: usize,
     right_height: usize,
+    /// The last frame's size, so opening a picture knows how big to make it.
+    screen: (u16, u16),
     quit: bool,
 }
 
@@ -180,6 +185,7 @@ impl App {
             pending: None,
             left_height: 20,
             right_height: 20,
+            screen: (80, 24),
             quit: false,
         };
         app.rebuild_left();
@@ -558,6 +564,30 @@ impl App {
                 .as_deref(),
             Some("md" | "markdown" | "mdown" | "mkd")
         );
+        if image::is_image(&item.path) {
+            // The same box the text uses, measured the same way.
+            let (w, h) = self.screen;
+            let cols = w.saturating_sub(8) as usize;
+            let rows = h.saturating_sub(7) as usize;
+            let (lines, note) = match image::thumbnail(&item.path, cols, rows) {
+                Ok((lines, note)) => (lines, note),
+                Err(reason) => (Vec::new(), reason),
+            };
+            let widest = widest_of(&lines);
+            self.modal = Some(Modal::Look(Look {
+                name,
+                lines,
+                raw: None,
+                showing_raw: false,
+                offset: 0,
+                column: 0,
+                widest,
+                note: Some(note),
+                picture: true,
+            }));
+            return;
+        }
+
         let (plain, formatted_raw, mut note) = match preview::read(&item.path) {
             preview::Preview::Text { lines, raw, note } => (lines, raw, note),
             preview::Preview::NotText(reason) => (Vec::new(), None, Some(reason)),
@@ -580,6 +610,7 @@ impl App {
             column: 0,
             widest,
             note,
+            picture: false,
         }));
     }
 
@@ -1146,6 +1177,7 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     let [left, right] =
         Layout::horizontal([Constraint::Length(LEFT_WIDTH), Constraint::Min(20)]).areas(main);
 
+    app.screen = (frame.area().width, frame.area().height);
     app.left_height = left.height.saturating_sub(2) as usize;
     app.right_height = right.height.saturating_sub(2) as usize;
     app.left_offset = widgets::scroll_to(
@@ -1232,7 +1264,11 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
             Style::new().fg(Color::DarkGray),
         )));
     } else {
-        let numbers = look.lines.len().to_string().len().max(3);
+        let numbers = if look.picture {
+            0
+        } else {
+            look.lines.len().to_string().len().max(3)
+        };
         for (i, line) in look
             .lines
             .iter()
@@ -1240,15 +1276,17 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
             .skip(look.offset)
             .take(rows.saturating_sub(1))
         {
-            let mut spans = vec![term::Span::styled(
-                format!("{:>numbers$} ", i + 1, numbers = numbers),
-                Style::new().fg(Color::DarkGray),
-            )];
-            spans.extend(window_of(
-                line,
-                look.column,
-                inner.saturating_sub(numbers + 1),
-            ));
+            let mut spans = Vec::new();
+            let gutter = if numbers == 0 {
+                0
+            } else {
+                spans.push(term::Span::styled(
+                    format!("{:>numbers$} ", i + 1, numbers = numbers),
+                    Style::new().fg(Color::DarkGray),
+                ));
+                numbers + 1
+            };
+            spans.extend(window_of(line, look.column, inner.saturating_sub(gutter)));
             lines.push(term::Line::from(spans));
         }
     }
@@ -1258,11 +1296,14 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
     } else {
         // Where you are comes first: after a leap that is the thing you look
         // for. What the file is, and how to leave, follow.
-        let mut parts = vec![format!(
-            "regel {} van {}",
-            (look.offset + 1).min(look.lines.len()),
-            look.lines.len()
-        )];
+        let mut parts = Vec::new();
+        if !look.picture {
+            parts.push(format!(
+                "regel {} van {}",
+                (look.offset + 1).min(look.lines.len()),
+                look.lines.len()
+            ));
+        }
         if look.column > 0 {
             parts.push(format!("kolom {}", look.column + 1));
         }

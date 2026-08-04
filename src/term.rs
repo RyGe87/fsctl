@@ -31,6 +31,9 @@ pub enum Color {
     Blue,
     Cyan,
     DarkGray,
+    /// A slot in the terminal's 256-colour palette. Named colours are what the
+    /// interface speaks; this is for pictures, where the palette is the point.
+    Indexed(u8),
 }
 
 impl Color {
@@ -38,25 +41,27 @@ impl Color {
     /// slots, which name the same colours on paper — but Terminal.app and
     /// friends colour the two forms from different tables, and side by side
     /// the classic table is the one that stays readable. Chosen by eye.
-    fn fg_code(self) -> &'static str {
+    fn fg_code(self) -> String {
         match self {
-            Color::Red => "31",
-            Color::Green => "32",
-            Color::Yellow => "33",
-            Color::Blue => "34",
-            Color::Cyan => "36",
-            Color::DarkGray => "90",
+            Color::Red => "31".to_string(),
+            Color::Green => "32".to_string(),
+            Color::Yellow => "33".to_string(),
+            Color::Blue => "34".to_string(),
+            Color::Cyan => "36".to_string(),
+            Color::DarkGray => "90".to_string(),
+            Color::Indexed(n) => format!("38;5;{n}"),
         }
     }
 
-    fn bg_code(self) -> &'static str {
+    fn bg_code(self) -> String {
         match self {
-            Color::Red => "41",
-            Color::Green => "42",
-            Color::Yellow => "43",
-            Color::Blue => "44",
-            Color::Cyan => "46",
-            Color::DarkGray => "100",
+            Color::Red => "41".to_string(),
+            Color::Green => "42".to_string(),
+            Color::Yellow => "43".to_string(),
+            Color::Blue => "44".to_string(),
+            Color::Cyan => "46".to_string(),
+            Color::DarkGray => "100".to_string(),
+            Color::Indexed(n) => format!("48;5;{n}"),
         }
     }
 }
@@ -118,15 +123,15 @@ impl Style {
     }
 
     fn sgr(self) -> String {
-        let mut codes: Vec<&str> = vec!["0"];
+        let mut codes: Vec<String> = vec!["0".to_string()];
         if self.modifiers.contains(Modifier::BOLD) {
-            codes.push("1");
+            codes.push("1".to_string());
         }
         if self.modifiers.contains(Modifier::REVERSED) {
-            codes.push("7");
+            codes.push("7".to_string());
         }
         if self.modifiers.contains(Modifier::ITALIC) {
-            codes.push("3");
+            codes.push("3".to_string());
         }
         if let Some(fg) = self.fg {
             codes.push(fg.fg_code());

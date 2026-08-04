@@ -141,6 +141,16 @@ valt schuif je in beeld. Bedoeld om te bevestigen dat je
 het juiste bestand te pakken hebt, niet om in te lezen — daarvoor is `Enter`,
 dat de gewone app opent.
 
+**Afbeeldingen worden een miniatuur** van halve blokjes: elk `▀` draagt twee
+pixels — zijn inkt is de bovenste, zijn papier de onderste — zodat je de
+verticale resolutie terugwint die een teken je kost. Doorzichtige pixels laten
+de terminal zelf zien, dus een icoon houdt zijn vorm.
+
+Het decoderen doet `sips`, dat elk formaat leest dat Apple leest: png, jpeg,
+heic, tiff, gif, bmp, pdf. Terminal.app kent 256 kleuren, dus de kleuren worden
+naar dat palet gebracht — een 6×6×6-kubus, met de grijstrap voor wat daar
+grijs is. Onder in beeld staat wat het origineel meet.
+
 **Markdown wordt gerenderd**: koppen vet zonder hun hekjes, `-` wordt `•`,
 `**sterk**` en `_nadruk_` verliezen hun tekens maar houden hun nadruk, code
 kleurt, een citaat krijgt een streep, `---` wordt een lijn, en in een codeblok
