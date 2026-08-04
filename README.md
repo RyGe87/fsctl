@@ -10,7 +10,35 @@ views of the same files without a second way of drawing anything.
 system: `cp` and `mv` move the bytes, `git status` reports the repositories,
 `open` opens files, `stty` puts the terminal in raw mode.
 
-macOS only, and honest about it — see [Limits](#limits-of-v01).
+macOS and Linux. Which features are available depends on what the machine has;
+`fsctl --doctor` tells you in one screen.
+
+## Doctor
+
+```
+$ fsctl --doctor
+  copy       ✓  /usr/bin/cp                  cp -a --reflink=auto
+  move       ✓  /usr/bin/mv                  mv -f
+  trash      ✓  ~/.local/share/Trash
+  json       ✓  /usr/bin/python3 (python3)   formatting in the preview
+  images     ✗  not found                    thumbnails in the preview
+```
+
+A missing tool turns off one feature; nothing else changes. The tools are
+resolved once at startup by absolute path, never through `$PATH` — a file
+manager that copies your files should not be steered by an environment
+variable.
+
+| | macOS | Linux |
+|---|---|---|
+| copy | `cp -Rc` (APFS clone) | `cp -a --reflink=auto` |
+| open | `open` | `xdg-open` |
+| trash | Finder, so "Put Back" works | `~/.local/share/Trash` + `.trashinfo`, so "Restore" works |
+| json | `plutil` | `jq` or `python3 -m json.tool` |
+| xml | `xmllint` | `xmllint` |
+| images | `sips` | ImageMagick (and then without a scratch file) |
+| plists | `plutil` | — |
+| cloud ☁ | `stat -f %Sf` | — (placeholders differ per provider) |
 
 ## Install
 
@@ -299,9 +327,9 @@ on.
 
 ## Limits of v0.1
 
-- **macOS only.** On Linux it browses fine, but `open`, the trash and the JSON
-  formatting are Apple-shaped, and `cp -Rc` falls back to a plain `cp -R` that
-  keeps no xattrs.
+- **Cloud markers are macOS-only.** The `dataless` flag is an Apple thing; on
+  Linux every provider marks placeholders differently, so the ☁ column stays
+  off there.
 - **`Ctrl-J` does not exist.** That is byte `0x0A`, and that *is* Enter — no
   terminal can tell the two apart. Hence `J`/`K` for the leap of ten, and
   `Ctrl`+arrow where your terminal forwards it. Note that macOS keeps

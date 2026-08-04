@@ -124,11 +124,23 @@ tomorrow. Everything derived lives in memory, rebuilt on demand.
 - **A parser for anything a system tool already reads.** Markdown is the single
   exception, because macOS ships nothing for it.
 
-## Open
+## Linux
 
-- **Linux.** It runs, but `open`, the trash, `plutil` and the APFS clone are
-  Apple-shaped. A small platform layer would fix it; it needs a machine to test
-  on.
+Done, and verified in a container on the Unraid box rather than reasoned about:
+it builds on rustc 1.97, all tests pass, the interface draws, and delete, move,
+pack and the JSON preview do what they say. A `toolbox` resolves the tools once
+at startup, so one code path serves both systems and a missing tool is a
+sentence in `--doctor` instead of a mystery.
+
+What genuinely differs: `cp -Rc` is an Apple flag (`-a --reflink=auto` makes the
+same two promises with GNU), `sips` writes to a file while ImageMagick writes to
+its output (so on Linux the thumbnail needs no scratch file at all), GNU
+`stat -f` asks about the filesystem rather than about file flags (so the cloud
+markers exist only where the question does), and there is no Finder to inherit
+"Put Back" from — hence the freedesktop pair, written by hand: the file under
+`Trash/files` and a `.trashinfo` beside it naming where it came from.
+
+## Open
 - **Progress while copying.** `ditto -V` writes a line per file and could feed a
   bar.
 - **Saved filters** as a fourth source, over the same derived facts.
