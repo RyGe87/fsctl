@@ -304,9 +304,20 @@ there — **without unpacking**:
 └────────────────────────────────────────────────────────┘
 ```
 
-In the fixed pane the same listing appears without opening anything: reading a
-zip's central directory costs no unpacking, so an archive under the cursor shows
-what is in it the way a text file shows its first lines.
+In the fixed pane the archive shows its shape without opening anything —
+indented by depth, folders in bold:
+
+```
+┌ project.zip ───────────────────────────────┐
+│w/                                        — │
+│  docs/                                   — │
+│    gids.md                             2 B │
+│  leesmij.md                            2 B │
+│  src/                                    — │
+```
+
+Reading a zip's central directory costs no unpacking, so this is as cheap as
+showing the first lines of a text file.
 
 `Enter` on a member reads it straight out of the archive — `unzip -p` writes it
 to its output and we read along. **No temporary file** is involved: nothing to

@@ -180,13 +180,59 @@ struct FetchAsk {
     hand_over: bool,
 }
 
-/// Standing inside an archive, looking at what it holds.
+/// Standing inside an archive — folders on the left, files on the right, the
+/// same shape the tool has outside.
 struct Inside {
     path: PathBuf,
     name: String,
     members: Vec<archive::Member>,
-    cursor: usize,
-    offset: usize,
+    folders: std::collections::BTreeSet<String>,
+    /// Which folders are unfolded, by their path inside the archive.
+    opened: std::collections::BTreeSet<String>,
+    /// The folder rows as drawn: depth, path.
+    rows: Vec<(usize, String)>,
+    dir_cursor: usize,
+    dir_offset: usize,
+    file_cursor: usize,
+    file_offset: usize,
+    focus: Focus,
+}
+
+impl Inside {
+    fn rebuild(&mut self) {
+        let previous = self.here();
+        self.rows.clear();
+        self.push_folder("", 0);
+        self.dir_cursor = self
+            .rows
+            .iter()
+            .position(|(_, p)| *p == previous)
+            .unwrap_or(0);
+    }
+
+    fn push_folder(&mut self, dir: &str, depth: usize) {
+        self.rows.push((depth, dir.to_string()));
+        if depth == 0 || self.opened.contains(dir) {
+            for child in archive::folders_in(&self.folders, dir) {
+                self.push_folder(&child, depth + 1);
+            }
+        }
+    }
+
+    fn here(&self) -> String {
+        self.rows
+            .get(self.dir_cursor)
+            .map(|(_, p)| p.clone())
+            .unwrap_or_default()
+    }
+
+    fn files(&self) -> Vec<&archive::Member> {
+        archive::files_in(&self.members, &self.here())
+    }
+
+    fn selected_file(&self) -> Option<&archive::Member> {
+        self.files().get(self.file_cursor).copied()
+    }
 }
 
 /// Where should this go? The same tree, asked as a question.
@@ -684,14 +730,22 @@ impl App {
     fn open_archive(&mut self, path: PathBuf, name: String, cursor: usize) {
         match archive::list(&path) {
             Ok(members) if !members.is_empty() => {
-                let cursor = cursor.min(members.len() - 1);
-                self.modal = Some(Modal::Inside(Inside {
+                let folders = archive::folders(&members);
+                let mut inside = Inside {
                     path,
                     name,
                     members,
-                    cursor,
-                    offset: 0,
-                }));
+                    folders,
+                    opened: std::collections::BTreeSet::new(),
+                    rows: Vec::new(),
+                    dir_cursor: 0,
+                    dir_offset: 0,
+                    file_cursor: cursor,
+                    file_offset: 0,
+                    focus: Focus::Right,
+                };
+                inside.rebuild();
+                self.modal = Some(Modal::Inside(inside));
             }
             Ok(_) => self.status = "the archive is empty".into(),
             Err(e) => self.status = format!("archive: {e}"),
@@ -699,26 +753,89 @@ impl App {
     }
 
     fn on_inside_key(&mut self, code: KeyCode) {
-        let height = self.screen.1.saturating_sub(7).max(1) as usize;
+        let height = self.screen.1.saturating_sub(8).max(1) as usize;
         let Some(Modal::Inside(inside)) = &mut self.modal else {
             return;
         };
-        let last = inside.members.len().saturating_sub(1);
+        let (last, cursor) = match inside.focus {
+            Focus::Left => (inside.rows.len().saturating_sub(1), inside.dir_cursor),
+            Focus::Right => (inside.files().len().saturating_sub(1), inside.file_cursor),
+        };
+        let moved;
         match code {
-            KeyCode::Down | KeyCode::Char('j') => inside.cursor = (inside.cursor + 1).min(last),
-            KeyCode::Up | KeyCode::Char('k') => inside.cursor = inside.cursor.saturating_sub(1),
-            KeyCode::Char('J') => inside.cursor = (inside.cursor + LEAP as usize).min(last),
-            KeyCode::Char('K') => inside.cursor = inside.cursor.saturating_sub(LEAP as usize),
-            KeyCode::PageDown => inside.cursor = (inside.cursor + height).min(last),
-            KeyCode::PageUp => inside.cursor = inside.cursor.saturating_sub(height),
-            KeyCode::Home | KeyCode::Char('g') => inside.cursor = 0,
-            KeyCode::End | KeyCode::Char('G') => inside.cursor = last,
-            KeyCode::Enter | KeyCode::Char('p') => self.look_at_member(),
-            KeyCode::Char('u') => self.take_member_out(),
+            KeyCode::Down | KeyCode::Char('j') => moved = (cursor + 1).min(last),
+            KeyCode::Up | KeyCode::Char('k') => moved = cursor.saturating_sub(1),
+            KeyCode::Char('J') => moved = (cursor + LEAP as usize).min(last),
+            KeyCode::Char('K') => moved = cursor.saturating_sub(LEAP as usize),
+            KeyCode::PageDown => moved = (cursor + height).min(last),
+            KeyCode::PageUp => moved = cursor.saturating_sub(height),
+            KeyCode::Home | KeyCode::Char('g') => moved = 0,
+            KeyCode::End | KeyCode::Char('G') => moved = last,
+            KeyCode::Tab => {
+                inside.focus = if inside.focus == Focus::Left {
+                    Focus::Right
+                } else {
+                    Focus::Left
+                };
+                return;
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                if inside.focus == Focus::Left {
+                    let here = inside.here();
+                    // A folder with nothing under it hands the keyboard on.
+                    if !here.is_empty() && !archive::folders_in(&inside.folders, &here).is_empty() {
+                        inside.opened.insert(here);
+                        inside.rebuild();
+                    } else {
+                        inside.focus = Focus::Right;
+                    }
+                }
+                return;
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                if inside.focus == Focus::Right {
+                    inside.focus = Focus::Left;
+                } else {
+                    let here = inside.here();
+                    if inside.opened.remove(&here) {
+                        inside.rebuild();
+                    } else {
+                        let parent = archive::parent_of(&here);
+                        if let Some(at) = inside.rows.iter().position(|(_, p)| *p == parent) {
+                            inside.dir_cursor = at;
+                            inside.file_cursor = 0;
+                        }
+                    }
+                }
+                return;
+            }
+            KeyCode::Enter | KeyCode::Char('p') => {
+                if inside.focus == Focus::Left {
+                    inside.focus = Focus::Right;
+                    return;
+                }
+                self.look_at_member();
+                return;
+            }
+            KeyCode::Char('u') => {
+                self.take_member_out();
+                return;
+            }
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.modal = None;
+                return;
             }
-            _ => {}
+            _ => return,
+        }
+        match inside.focus {
+            Focus::Left if moved != inside.dir_cursor => {
+                inside.dir_cursor = moved;
+                // A new folder means the file list starts over.
+                inside.file_cursor = 0;
+                inside.file_offset = 0;
+            }
+            Focus::Left => {}
+            Focus::Right => inside.file_cursor = moved,
         }
     }
 
@@ -728,12 +845,9 @@ impl App {
         let Some(Modal::Inside(inside)) = &self.modal else {
             return;
         };
-        let Some(member) = inside.members.get(inside.cursor) else {
+        let Some(member) = inside.selected_file() else {
             return;
         };
-        if member.is_dir {
-            return;
-        }
         let (name, size) = (member.name.clone(), member.size);
         let bytes = archive::read_member(&inside.path, &name);
         let back = match self.modal.take() {
@@ -775,7 +889,7 @@ impl App {
         let Some(Modal::Inside(inside)) = &self.modal else {
             return;
         };
-        let Some(member) = inside.members.get(inside.cursor) else {
+        let Some(member) = inside.selected_file() else {
             return;
         };
         let Some(dest) = self.current_path() else {
@@ -1533,17 +1647,28 @@ fn build_preview(path: &Path, name: &str, cols: u16, rows: u16) -> Built {
             Ok(members) if !members.is_empty() => {
                 let room = cols as usize;
                 let shown = (rows as usize).saturating_sub(1).max(1);
-                let mut lines: Vec<markdown::Styled> = members
+                // Indented by depth: a listing of full paths reads as noise,
+                // and the shape of an archive is the first thing you want.
+                let mut sorted: Vec<&archive::Member> = members.iter().collect();
+                sorted.sort_by(|a, b| a.name.cmp(&b.name));
+                let mut lines: Vec<markdown::Styled> = sorted
                     .iter()
                     .take(shown)
                     .map(|m| {
+                        let depth = m.name.trim_end_matches('/').matches('/').count();
                         let style = if m.is_dir {
                             Style::new().add_modifier(Modifier::BOLD)
                         } else {
                             Style::new()
                         };
+                        let label = format!(
+                            "{}{}{}",
+                            "  ".repeat(depth),
+                            archive::leaf_of(&m.name),
+                            if m.is_dir { "/" } else { "" }
+                        );
                         vec![
-                            (width::fit(&m.name, room.saturating_sub(10)), style),
+                            (width::fit(&label, room.saturating_sub(10)), style),
                             (
                                 width::fit_right(&fsmodel::human_size(m.size, m.is_dir), 9),
                                 Style::new().fg(Color::DarkGray),
@@ -2371,69 +2496,125 @@ fn draw_destination(frame: &mut term::Frame, pick: &Destination, app: &App) {
     );
 }
 
-fn draw_inside(frame: &mut term::Frame, inside: &Inside) {
+fn draw_inside(frame: &mut term::Frame, inside: &mut Inside) {
     let area = frame.area();
     let w = area.width.saturating_sub(6).max(24);
-    let h = area.height.saturating_sub(4).max(6);
+    let h = area.height.saturating_sub(4).max(8);
     let box_area = Rect {
         x: (area.width - w) / 2,
         y: (area.height - h) / 2,
         width: w,
         height: h,
     };
-    let inner = w.saturating_sub(2) as usize;
+    frame.render_widget(term::Clear, box_area);
+
+    // The same division as outside: folders on the left, files on the right.
+    let tree_w = (w * 2 / 5).clamp(14, 40);
+    let [tree_area, list_area] = Layout::horizontal([
+        Constraint::Length(tree_w),
+        Constraint::Min(12),
+    ])
+    .areas(Rect {
+        height: h.saturating_sub(1),
+        ..box_area
+    });
     let rows = h.saturating_sub(3) as usize;
 
-    let offset = widgets::scroll_to(inside.offset, inside.cursor, rows, inside.members.len());
-    let name_w = inner.saturating_sub(12);
-    let rows_out: Vec<Row> = inside
-        .members
+    let folder_rows: Vec<Row> = inside
+        .rows
         .iter()
-        .map(|m| {
-            let style = if m.is_dir {
-                Style::new().add_modifier(Modifier::BOLD)
+        .map(|(depth, path)| {
+            let open = *depth == 0 || inside.opened.contains(path);
+            let has_children = !archive::folders_in(&inside.folders, path).is_empty();
+            let marker = if !has_children {
+                "  "
+            } else if open {
+                "▾ "
             } else {
-                Style::new()
+                "▸ "
+            };
+            let label = if path.is_empty() {
+                width::truncate(&inside.name, tree_w as usize)
+            } else {
+                archive::leaf_of(path)
             };
             Row::new(vec![
-                (width::fit(&m.name, name_w), style),
                 (
-                    width::fit_right(&fsmodel::human_size(m.size, m.is_dir), 9),
+                    format!("{}{marker}", "  ".repeat(*depth)),
+                    Style::new().fg(Color::DarkGray),
+                ),
+                (
+                    width::truncate(&label, (tree_w as usize).saturating_sub(depth * 2 + 6)),
+                    Style::new().add_modifier(Modifier::BOLD),
+                ),
+            ])
+        })
+        .collect();
+
+    let files: Vec<archive::Member> = inside.files().into_iter().cloned().collect();
+    let name_w = (list_area.width as usize).saturating_sub(14);
+    let file_rows: Vec<Row> = files
+        .iter()
+        .map(|m| {
+            Row::new(vec![
+                (width::fit(&archive::leaf_of(&m.name), name_w), Style::new()),
+                (
+                    width::fit_right(&fsmodel::human_size(m.size, false), 9),
                     Style::new().fg(Color::DarkGray),
                 ),
             ])
         })
         .collect();
 
-    frame.render_widget(term::Clear, box_area);
+    inside.dir_offset = widgets::scroll_to(
+        inside.dir_offset,
+        inside.dir_cursor,
+        rows,
+        inside.rows.len(),
+    );
+    inside.file_offset =
+        widgets::scroll_to(inside.file_offset, inside.file_cursor, rows, files.len());
+
     frame.render_widget(
-        List::new(rows_out)
+        List::new(folder_rows)
+            .block(Block::bordered().title(" in the archive "))
+            .cursor(inside.dir_cursor)
+            .offset(inside.dir_offset)
+            .focused(inside.focus == Focus::Left),
+        tree_area,
+    );
+    let here = inside.here();
+    frame.render_widget(
+        List::new(file_rows)
             .block(Block::bordered().title(format!(
                 " {} — {} ",
-                width::truncate(&inside.name, inner.saturating_sub(20)),
-                match inside.members.len() {
-                    1 => "1 item".to_string(),
-                    n => format!("{n} items"),
+                if here.is_empty() {
+                    "/".to_string()
+                } else {
+                    width::truncate_start(&here, 24)
+                },
+                match files.len() {
+                    1 => "1 file".to_string(),
+                    n => format!("{n} files"),
                 }
             )))
-            .cursor(inside.cursor)
-            .offset(offset)
-            .focused(true),
-        box_area,
+            .cursor(inside.file_cursor)
+            .offset(inside.file_offset)
+            .focused(inside.focus == Focus::Right),
+        list_area,
     );
 
-    // The footer sits on the box's last inner row, under the list.
     let footer = Rect {
         x: box_area.x + 1,
         y: box_area.y + box_area.height - 2,
-        width: inner as u16,
+        width: box_area.width.saturating_sub(2),
         height: 1,
     };
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
             width::fit(
-                "enter look   ·   u unpack here   ·   esc close",
-                inner,
+                "tab column   ·   enter look   ·   u unpack here   ·   esc close",
+                footer.width as usize,
             ),
             Style::new().fg(Color::DarkGray),
         ))),

@@ -155,6 +155,58 @@ fn parse_tar(text: &str) -> Vec<Member> {
         .collect()
 }
 
+/// Every folder in the archive, including the ones no entry names but a path
+/// implies: a zip may hold `a/b/c.txt` without ever listing `a/` or `a/b/`.
+pub fn folders(members: &[Member]) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    out.insert(String::new()); // the archive itself
+    for member in members {
+        let trimmed = member.name.trim_end_matches('/');
+        let parts: Vec<&str> = trimmed.split('/').collect();
+        // A file's own name is not a folder; a folder entry's is.
+        let depth = if member.is_dir {
+            parts.len()
+        } else {
+            parts.len().saturating_sub(1)
+        };
+        for i in 1..=depth {
+            out.insert(parts[..i].join("/"));
+        }
+    }
+    out
+}
+
+/// The folders that sit directly inside `dir`.
+pub fn folders_in(all: &std::collections::BTreeSet<String>, dir: &str) -> Vec<String> {
+    all.iter()
+        .filter(|f| !f.is_empty() && parent_of(f) == dir)
+        .cloned()
+        .collect()
+}
+
+/// The files — not folders — that sit directly inside `dir`.
+pub fn files_in<'a>(members: &'a [Member], dir: &str) -> Vec<&'a Member> {
+    members
+        .iter()
+        .filter(|m| !m.is_dir && parent_of(m.name.trim_end_matches('/')) == dir)
+        .collect()
+}
+
+pub fn parent_of(path: &str) -> String {
+    match path.rfind('/') {
+        Some(at) => path[..at].to_string(),
+        None => String::new(),
+    }
+}
+
+pub fn leaf_of(path: &str) -> String {
+    let trimmed = path.trim_end_matches('/');
+    match trimmed.rfind('/') {
+        Some(at) => trimmed[at + 1..].to_string(),
+        None => trimmed.to_string(),
+    }
+}
+
 /// One member's bytes, straight from the archive.
 pub fn read_member(path: &Path, member: &str) -> Result<Vec<u8>, String> {
     match kind(path).ok_or("not an archive")? {
@@ -200,6 +252,30 @@ mod tests {
         assert!(is_archive(Path::new("/x/pak.zip")));
         assert!(is_archive(Path::new("/x/bundel.tar.gz")));
         assert!(!is_archive(Path::new("/x/gewoon.txt")));
+    }
+
+    #[test]
+    fn folders_include_the_ones_only_a_path_implies() {
+        let members = vec![
+            Member {
+                name: "a/b/c.txt".to_string(),
+                size: 1,
+                is_dir: false,
+            },
+            Member {
+                name: "top.txt".to_string(),
+                size: 1,
+                is_dir: false,
+            },
+        ];
+        let folders = folders(&members);
+        assert!(folders.contains(""));
+        assert!(folders.contains("a"));
+        assert!(folders.contains("a/b"));
+        assert_eq!(folders.len(), 3);
+        assert_eq!(files_in(&members, "").len(), 1);
+        assert_eq!(files_in(&members, "a/b")[0].name, "a/b/c.txt");
+        assert_eq!(folders_in(&folders, "a"), vec!["a/b".to_string()]);
     }
 
     #[test]
