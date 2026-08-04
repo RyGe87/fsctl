@@ -47,6 +47,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `W` | de wortel één map omhoog |
 | `spatie` | bestand aan- of afvinken |
 | `c` `x` `v` | kopiëren · knippen · plakken |
+| `d` `Del` | naar de prullenbak (vraagt eerst) |
 | `s` `u` | sorteren (naam/type/datum) · omkeren |
 | `.` | verborgen bestanden tonen |
 | `r` | verversen |
@@ -124,10 +125,28 @@ met het volledige overzicht in plaats van zeven onderbrekingen.
 - **[S] Overslaan** — de botsers blijven staan, de rest gaat door
 - **[Esc]** — afbreken
 
+## Verwijderen
+
+Naar de prullenbak, nooit rechtstreeks weg. Finder doet het via `osascript`,
+want de put-back-informatie voor "Zet terug" wordt vastgelegd door wie het
+verplaatst — en dat is alleen Finder. Paden reizen als argumenten, niet in de
+scripttekst, zodat een aanhalingsteken in een naam geen deel van het programma
+kan worden.
+
+De vraag vooraf zegt wat het kost: hoeveel items, hoeveel mappen, en — het
+enige wat je scherm je niet kon vertellen — **welke mappen verborgen inhoud
+bevatten die mee weggaat**. Dat is dezelfde `·` uit de boom, nu als
+waarschuwing.
+
+Weigert Finder (automatisering niet toegestaan, Finder bezig), dan gaan de
+bestanden alsnog naar `~/.Trash`, met de hand verplaatst. Terug te halen, maar
+zonder "Zet terug"; de statusregel zegt het erbij. Wil je Finder er helemaal
+buiten houden: `FSCTL_TRASH=plain`.
+
+De wortel van de boom kan niet weg — daar zou de weergave op stukvallen.
+
 ## Grenzen van v0.1
 
-- **Verwijderen zit er niet in.** Komt later, en dan naar `~/.Trash` via
-  `osascript`, zodat "Zet terug" blijft werken.
 - **Geen voortgangsbalk.** Een APFS-kloon is ogenblikkelijk; een echte kopie
   over een volumegrens laat de tool even stilstaan. `ditto -V` kan dat later
   voeden.

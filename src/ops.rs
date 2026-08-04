@@ -9,7 +9,34 @@
 //! `; rm -rf ~` is just an awkward name.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+
+use std::time::Duration;
+
+/// Runs a command and gives up after `limit`, reporting whether it succeeded.
+///
+/// The child stays ours so that giving up can actually kill it: an osascript
+/// left running would come back minutes later and delete what we have since
+/// moved by hand.
+fn succeeds_within(mut command: Command, limit: Duration) -> bool {
+    let Ok(mut child) = command.stdout(Stdio::null()).stderr(Stdio::null()).spawn() else {
+        return false;
+    };
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {}
+            Err(_) => return false,
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -74,10 +101,13 @@ pub struct Outcome {
 
 impl Outcome {
     pub fn summary(&self, mode: Mode) -> String {
-        let verb = match mode {
+        self.summary_of(match mode {
             Mode::Copy => "gekopieerd",
             Mode::Cut => "verplaatst",
-        };
+        })
+    }
+
+    pub fn summary_of(&self, verb: &str) -> String {
         let mut text = format!("{} {verb}", self.done);
         if self.skipped > 0 {
             text.push_str(&format!(", {} overgeslagen", self.skipped));
@@ -164,6 +194,86 @@ fn run(program: &str, flags: &[&str], src: &Path, target: &Path) -> Result<(), S
         .and_then(|l| l.rsplit(": ").next())
         .unwrap_or("mislukt")
         .to_string())
+}
+
+/// Puts things in the trash — Finder's trash, with "Zet terug" intact.
+///
+/// Finder is asked through osascript, because the trash is more than a folder:
+/// the put-back path is recorded by whoever does the moving, and only Finder
+/// records it. Paths travel as arguments rather than inside the script text, so
+/// a quote in a file name cannot become part of the program.
+///
+/// If Finder will not play along — automation not permitted, Finder not running
+/// — the files still go to `~/.Trash` by hand. They are then recoverable but
+/// without put-back, which beats leaving them where they are and saying nothing.
+pub fn trash(items: &[PathBuf]) -> Outcome {
+    let mut outcome = Outcome {
+        done: 0,
+        skipped: 0,
+        errors: Vec::new(),
+    };
+    if items.is_empty() {
+        return outcome;
+    }
+    // An escape hatch for anyone who would rather not have Finder involved at
+    // all: FSCTL_TRASH=plain moves to ~/.Trash and never asks it.
+    if std::env::var("FSCTL_TRASH").as_deref() == Ok("plain") {
+        return by_hand(items, outcome);
+    }
+
+    let mut script = Command::new("/usr/bin/osascript");
+    script
+        .args(["-e", "on run argv"])
+        .args(["-e", "set out to {}"])
+        .args(["-e", "repeat with p in argv"])
+        .args(["-e", "set end of out to (POSIX file (p as text)) as alias"])
+        .args(["-e", "end repeat"])
+        .args(["-e", "tell application \"Finder\" to delete out"])
+        .args(["-e", "end run"]);
+    for item in items {
+        script.arg(item);
+    }
+
+    // Finder is normally instant, but a beachballed Finder must not take the
+    // file manager with it.
+    if succeeds_within(script, Duration::from_secs(15)) {
+        outcome.done = items.len();
+        return outcome;
+    }
+
+    by_hand(items, outcome)
+}
+
+/// The fallback, and the whole of it when Finder is not wanted: move into
+/// `~/.Trash` ourselves. Recoverable, but without put-back.
+fn by_hand(items: &[PathBuf], mut outcome: Outcome) -> Outcome {
+    let trash = match std::env::var("HOME") {
+        Ok(home) => Path::new(&home).join(".Trash"),
+        Err(_) => {
+            outcome.errors.push("geen thuismap gevonden".to_string());
+            return outcome;
+        }
+    };
+    for item in items {
+        let Some(name) = item.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        let target = if trash.join(&name).symlink_metadata().is_ok() {
+            free_name(&trash, &name)
+        } else {
+            trash.join(&name)
+        };
+        match move_to(item, &target) {
+            Ok(()) => outcome.done += 1,
+            Err(e) => outcome.errors.push(format!("{name}: {e}")),
+        }
+    }
+    if outcome.done > 0 && outcome.errors.is_empty() {
+        outcome
+            .errors
+            .push("via ~/.Trash, zonder 'Zet terug'".to_string());
+    }
+    outcome
 }
 
 /// Hands a file to whatever macOS thinks should open it.

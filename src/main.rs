@@ -72,12 +72,30 @@ struct Node {
 enum Pending {
     ScanRepos,
     Refresh,
+    /// Finder does the trashing, and a busy Finder should not look like a
+    /// frozen tool: the screen says so first, then we wait.
+    Trash(Vec<PathBuf>),
 }
 
 struct Conflict {
     dest: PathBuf,
     clashing: usize,
     total: usize,
+}
+
+/// What a delete is about to touch, gathered before anything is asked, so the
+/// question can say what it costs.
+struct DeleteAsk {
+    items: Vec<PathBuf>,
+    folders: usize,
+    /// Folders that look empty here but are not: their content would go along
+    /// unseen, which is the one thing a delete must say out loud.
+    concealing: Vec<String>,
+}
+
+enum Modal {
+    Conflict(Conflict),
+    Delete(DeleteAsk),
 }
 
 struct App {
@@ -99,7 +117,7 @@ struct App {
     repos: Vec<Repo>,
     scanned: bool,
     status: String,
-    conflict: Option<Conflict>,
+    modal: Option<Modal>,
     pending: Option<Pending>,
     left_height: usize,
     right_height: usize,
@@ -132,7 +150,7 @@ impl App {
             repos: Vec::new(),
             scanned: false,
             status: format!("{}", shorten(&root)),
-            conflict: None,
+            modal: None,
             pending: None,
             left_height: 20,
             right_height: 20,
@@ -328,8 +346,8 @@ impl App {
     // ----------------------------------------------------------------- keys --
 
     fn on_key(&mut self, code: KeyCode) {
-        if self.conflict.is_some() {
-            self.on_conflict_key(code);
+        if self.modal.is_some() {
+            self.on_modal_key(code);
             return;
         }
         match code {
@@ -378,6 +396,7 @@ impl App {
                 self.rebuild_left();
                 self.rebuild_right();
             }
+            KeyCode::Char('d') | KeyCode::Delete => self.delete(),
             KeyCode::Char('w') => self.root_here(),
             KeyCode::Char('W') => self.root_up(),
             KeyCode::Char('c') => self.yank(Mode::Copy),
@@ -400,22 +419,46 @@ impl App {
         }
     }
 
+    fn on_modal_key(&mut self, code: KeyCode) {
+        match self.modal {
+            Some(Modal::Delete(_)) => self.on_delete_key(code),
+            _ => self.on_conflict_key(code),
+        }
+    }
+
     fn on_conflict_key(&mut self, code: KeyCode) {
         let how = match code {
             KeyCode::Char('o') | KeyCode::Char('O') => Resolution::Overwrite,
             KeyCode::Char('b') | KeyCode::Char('B') => Resolution::KeepBoth,
             KeyCode::Char('s') | KeyCode::Char('S') => Resolution::Skip,
             KeyCode::Esc | KeyCode::Char('q') => {
-                self.conflict = None;
+                self.modal = None;
                 self.status = "afgebroken".into();
                 return;
             }
             _ => return,
         };
-        let Some(conflict) = self.conflict.take() else {
+        let Some(Modal::Conflict(conflict)) = self.modal.take() else {
             return;
         };
         self.execute_paste(&conflict.dest, how);
+    }
+
+    fn on_delete_key(&mut self, code: KeyCode) {
+        match code {
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                let Some(Modal::Delete(ask)) = self.modal.take() else {
+                    return;
+                };
+                self.status = "verwijderen…".into();
+                self.pending = Some(Pending::Trash(ask.items));
+            }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.modal = None;
+                self.status = "niets verwijderd".into();
+            }
+            _ => {}
+        }
     }
 
     fn switch(&mut self, source: Source) {
@@ -637,6 +680,42 @@ impl App {
         self.clipboard = Some(Clipboard { items, mode });
     }
 
+    /// Asks first, and gathers what it needs to ask well.
+    fn delete(&mut self) {
+        let items = self.targets();
+        if items.is_empty() {
+            self.status = "niets om te verwijderen".into();
+            return;
+        }
+        // Refuse to delete the ground you are standing on: the tree would be
+        // rooted at something that no longer exists.
+        if items.iter().any(|p| *p == self.root) {
+            self.status = "de wortel van de boom kan hier niet weg".into();
+            return;
+        }
+        let mut folders = 0;
+        let mut concealing = Vec::new();
+        for item in &items {
+            if !item.is_dir() {
+                continue;
+            }
+            folders += 1;
+            let probe = fsmodel::probe(item, self.show_hidden);
+            if probe.hidden_only {
+                concealing.push(
+                    item.file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default(),
+                );
+            }
+        }
+        self.modal = Some(Modal::Delete(DeleteAsk {
+            items,
+            folders,
+            concealing,
+        }));
+    }
+
     fn paste(&mut self) {
         let Some(clip) = self.clipboard.clone() else {
             self.status = "klembord is leeg".into();
@@ -650,11 +729,11 @@ impl App {
             self.execute_paste(&dest, Resolution::Overwrite);
             return;
         }
-        self.conflict = Some(Conflict {
+        self.modal = Some(Modal::Conflict(Conflict {
             dest,
             clashing,
             total: clip.items.len(),
-        });
+        }));
     }
 
     fn execute_paste(&mut self, dest: &Path, how: Resolution) {
@@ -925,15 +1004,84 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     );
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
-            " 1/2/3 bron · Tab kolom · w wortel hier · W wortel omhoog · spatie vink aan · c kopieer · x knip · v plak · s sorteer · . verborgen · r ververs · q sluit",
+            " 1/2/3 bron · Tab kolom · w wortel hier · W wortel omhoog · spatie vink aan · c kopieer · x knip · v plak · d verwijder · s sorteer · . verborgen · r ververs · q sluit",
             Style::new().fg(Color::DarkGray),
         ))),
         help,
     );
 
-    if let Some(conflict) = &app.conflict {
-        draw_conflict(frame, conflict, app);
+    match &app.modal {
+        Some(Modal::Conflict(conflict)) => draw_conflict(frame, conflict, app),
+        Some(Modal::Delete(ask)) => draw_delete(frame, ask),
+        None => {}
     }
+}
+
+fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
+    let names: Vec<String> = ask
+        .items
+        .iter()
+        .take(4)
+        .map(|p| {
+            p.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default()
+        })
+        .collect();
+
+    let mut lines = vec![term::Line::from(term::Span::styled(
+        match (ask.items.len(), ask.folders) {
+            (1, 1) => "Deze map naar de prullenbak".to_string(),
+            (1, _) => "Dit bestand naar de prullenbak".to_string(),
+            (n, 0) => format!("{n} bestanden naar de prullenbak"),
+            (n, f) => format!("{n} items naar de prullenbak, waarvan {f} map(pen)"),
+        },
+        Style::new().add_modifier(Modifier::BOLD),
+    ))];
+    for name in &names {
+        lines.push(term::Line::from(term::Span::styled(
+            format!("  {name}"),
+            Style::new().fg(Color::DarkGray),
+        )));
+    }
+    if ask.items.len() > names.len() {
+        lines.push(term::Line::from(term::Span::styled(
+            format!("  … en nog {}", ask.items.len() - names.len()),
+            Style::new().fg(Color::DarkGray),
+        )));
+    }
+    // The one thing the screen could not have told you by itself.
+    for name in &ask.concealing {
+        lines.push(term::Line::from(term::Span::styled(
+            format!("⚠ {name} bevat verborgen inhoud die mee weggaat"),
+            Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )));
+    }
+    lines.push(term::Line::from(term::Span::raw("")));
+    lines.push(term::Line::from(term::Span::styled(
+        "[d] Verwijderen      [Esc] Annuleren",
+        Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(term::Line::from(term::Span::styled(
+        "Terug te halen uit de prullenbak.",
+        Style::new().fg(Color::DarkGray),
+    )));
+
+    let area = frame.area();
+    let w = area.width.min(60).max(24);
+    let h = (lines.len() as u16 + 2).min(area.height);
+    let box_area = Rect {
+        x: area.width.saturating_sub(w) / 2,
+        y: area.height.saturating_sub(h) / 2,
+        width: w,
+        height: h,
+    };
+    frame.render_widget(term::Clear, box_area);
+    frame.render_widget(
+        term::Paragraph::new(term::Text::from(lines))
+            .block(Block::bordered().title(" Verwijderen ")),
+        box_area,
+    );
 }
 
 fn draw_conflict(frame: &mut term::Frame, conflict: &Conflict, app: &App) {
@@ -1030,6 +1178,13 @@ fn main() -> std::io::Result<()> {
             match job {
                 Pending::ScanRepos => {
                     app.ensure_repos();
+                    app.rebuild_left();
+                    app.rebuild_right();
+                }
+                Pending::Trash(items) => {
+                    let outcome = ops::trash(&items);
+                    app.status = outcome.summary_of("naar de prullenbak");
+                    app.selection.clear();
                     app.rebuild_left();
                     app.rebuild_right();
                 }
