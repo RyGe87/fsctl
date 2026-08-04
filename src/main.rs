@@ -426,11 +426,11 @@ impl App {
             }
             KeyCode::Char('?') => self.modal = Some(Modal::Help),
             KeyCode::Char('p') => self.look(),
-            KeyCode::Char('d') | KeyCode::Delete => self.delete(),
+            KeyCode::Char('x') | KeyCode::Delete => self.delete(),
             KeyCode::Char('w') => self.root_here(),
             KeyCode::Char('W') => self.root_up(),
             KeyCode::Char('c') => self.yank(Mode::Copy),
-            KeyCode::Char('x') => self.yank(Mode::Cut),
+            KeyCode::Char('m') => self.yank(Mode::Cut),
             KeyCode::Char('v') => self.paste(),
             KeyCode::Char('r') => {
                 self.status = "verversen…".into();
@@ -498,10 +498,12 @@ impl App {
             KeyCode::End | KeyCode::Char('G') => look.offset = last,
             // Sideways in steps of eight: one column at a time turns reading a
             // wide line into a chore.
-            KeyCode::Right | KeyCode::Char('l') => {
+            KeyCode::Right | KeyCode::Char('f') | KeyCode::Char('l') => {
                 look.column = (look.column + 8).min(look.widest.saturating_sub(8))
             }
-            KeyCode::Left | KeyCode::Char('h') => look.column = look.column.saturating_sub(8),
+            KeyCode::Left | KeyCode::Char('d') | KeyCode::Char('h') => {
+                look.column = look.column.saturating_sub(8)
+            }
             KeyCode::Char('0') => look.column = 0,
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') | KeyCode::Enter => {
                 self.modal = None;
@@ -537,7 +539,7 @@ impl App {
 
     fn on_delete_key(&mut self, code: KeyCode) {
         match code {
-            KeyCode::Char('d') | KeyCode::Char('D') => {
+            KeyCode::Char('x') | KeyCode::Char('X') => {
                 let Some(Modal::Delete(ask)) = self.modal.take() else {
                     return;
                 };
@@ -1159,7 +1161,7 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
                 String::new()
             };
             format!(
-                "regel {} van {}{sideways}   ·   j k h l scrollen   ·   esc sluiten",
+                "regel {} van {}{sideways}   ·   d f j k scrollen   ·   esc sluiten",
                 (look.offset + 1).min(look.lines.len().max(1)),
                 look.lines.len()
             )
@@ -1193,9 +1195,9 @@ fn draw_help(frame: &mut term::Frame) {
         ("w W", "de map hier wordt de wortel · de wortel omhoog"),
         ("Enter", "bestand openen"),
         ("spatie", "bestand aan- of afvinken"),
-        ("c x v", "kopiëren · knippen · plakken"),
-        ("p", "in een bestand kijken · j k h l scrollen · 0 terug"),
-        ("d", "naar de prullenbak, na een vraag"),
+        ("c m v", "kopiëren · knippen · plakken"),
+        ("p", "in een bestand kijken · j k op en neer · d f zijwaarts"),
+        ("x", "naar de prullenbak, na een vraag"),
         ("s u", "sorteren op naam/type/datum · omkeren"),
         (".", "verborgen bestanden tonen"),
         ("r", "verversen"),
@@ -1283,7 +1285,7 @@ fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
     }
     lines.push(term::Line::from(term::Span::raw("")));
     lines.push(term::Line::from(term::Span::styled(
-        "[d] Verwijderen      [Esc] Annuleren",
+        "[x] Verwijderen      [Esc] Annuleren",
         Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
     )));
     lines.push(term::Line::from(term::Span::styled(
