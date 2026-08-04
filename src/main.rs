@@ -96,6 +96,7 @@ struct DeleteAsk {
 enum Modal {
     Conflict(Conflict),
     Delete(DeleteAsk),
+    Help,
 }
 
 struct App {
@@ -345,7 +346,18 @@ impl App {
 
     // ----------------------------------------------------------------- keys --
 
-    fn on_key(&mut self, code: KeyCode) {
+    fn on_key(&mut self, key: term::event::KeyEvent) {
+        // Ctrl-something is not the letter itself. Without this, ctrl-d asks
+        // to delete and ctrl-c copies — and a terminal sends ctrl-d all by
+        // itself when a pipe closes.
+        if key.modifiers.contains(term::event::KeyModifiers::CONTROL) {
+            // The one exception, because everyone's fingers know it.
+            if key.code == KeyCode::Char('c') {
+                self.leave();
+            }
+            return;
+        }
+        let code = key.code;
         if self.modal.is_some() {
             self.on_modal_key(code);
             return;
@@ -396,6 +408,7 @@ impl App {
                 self.rebuild_left();
                 self.rebuild_right();
             }
+            KeyCode::Char('?') => self.modal = Some(Modal::Help),
             KeyCode::Char('d') | KeyCode::Delete => self.delete(),
             KeyCode::Char('w') => self.root_here(),
             KeyCode::Char('W') => self.root_up(),
@@ -422,6 +435,14 @@ impl App {
     fn on_modal_key(&mut self, code: KeyCode) {
         match self.modal {
             Some(Modal::Delete(_)) => self.on_delete_key(code),
+            Some(Modal::Help) => {
+                if matches!(
+                    code,
+                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('?') | KeyCode::Enter
+                ) {
+                    self.modal = None;
+                }
+            }
             _ => self.on_conflict_key(code),
         }
     }
@@ -933,6 +954,12 @@ fn status_line(app: &App, width_cells: usize) -> String {
         };
         right = format!("klembord: {} ({verb})  ·  {right}", clip.items.len());
     }
+    // The whole signpost, since the bottom bar is gone. It yields the moment
+    // the line needs the room for something it actually has to say.
+    let with_hint = format!("{right}  ·  ? hulp");
+    if width::str_width(&left) + width::str_width(&with_hint) + 2 <= width_cells {
+        right = with_hint;
+    }
     let pad = width_cells.saturating_sub(width::str_width(&left) + width::str_width(&right) + 1);
     left.push_str(&" ".repeat(pad));
     left.push_str(&right);
@@ -940,12 +967,8 @@ fn status_line(app: &App, width_cells: usize) -> String {
 }
 
 fn draw(frame: &mut term::Frame, app: &mut App) {
-    let [main, status, help] = Layout::vertical([
-        Constraint::Min(3),
-        Constraint::Length(1),
-        Constraint::Length(1),
-    ])
-    .areas(frame.area());
+    let [main, status] =
+        Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(frame.area());
     let [left, right] =
         Layout::horizontal([Constraint::Length(LEFT_WIDTH), Constraint::Min(20)]).areas(main);
 
@@ -1002,19 +1025,71 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
         ))),
         status,
     );
-    frame.render_widget(
-        term::Paragraph::new(term::Line::from(term::Span::styled(
-            " 1/2/3 bron · Tab kolom · w wortel hier · W wortel omhoog · spatie vink aan · c kopieer · x knip · v plak · d verwijder · s sorteer · . verborgen · r ververs · q sluit",
-            Style::new().fg(Color::DarkGray),
-        ))),
-        help,
-    );
 
     match &app.modal {
         Some(Modal::Conflict(conflict)) => draw_conflict(frame, conflict, app),
         Some(Modal::Delete(ask)) => draw_delete(frame, ask),
+        Some(Modal::Help) => draw_help(frame),
         None => {}
     }
+}
+
+/// Everything the bottom bar used to say, at the moment you ask for it.
+fn draw_help(frame: &mut term::Frame) {
+    let dim = Style::new().fg(Color::DarkGray);
+    let rows: [(&str, &str); 13] = [
+        ("1 2 3", "mappen · repo's · onopgeslagen werk"),
+        ("Tab", "van kolom wisselen"),
+        ("j k ↑ ↓", "bewegen · PgUp/PgDn per scherm · g G begin en eind"),
+        ("l h → ←", "map uit- en dichtklappen, of van kolom wisselen"),
+        ("w W", "de map hier wordt de wortel · de wortel omhoog"),
+        ("Enter", "bestand openen"),
+        ("spatie", "bestand aan- of afvinken"),
+        ("c x v", "kopiëren · knippen · plakken"),
+        ("d", "naar de prullenbak, na een vraag"),
+        ("s u", "sorteren op naam/type/datum · omkeren"),
+        (".", "verborgen bestanden tonen"),
+        ("r", "verversen"),
+        ("q", "sluiten, waar je stond"),
+    ];
+
+    let mut lines: Vec<term::Line> = rows
+        .iter()
+        .map(|(keys, what)| {
+            term::Line::from(vec![
+                term::Span::styled(
+                    width::fit(keys, 9),
+                    Style::new().add_modifier(Modifier::BOLD),
+                ),
+                term::Span::raw(what.to_string()),
+            ])
+        })
+        .collect();
+    lines.push(term::Line::default());
+    lines.push(term::Line::from(term::Span::styled(
+        "in de boom:  ▾ ▸ er zitten mappen in   × leeg   · verborgen inhoud",
+        dim,
+    )));
+    lines.push(term::Line::default());
+    lines.push(term::Line::from(term::Span::styled(
+        "esc sluiten",
+        dim,
+    )));
+
+    let area = frame.area();
+    let w = area.width.min(70).max(24);
+    let h = (lines.len() as u16 + 2).min(area.height);
+    let box_area = Rect {
+        x: area.width.saturating_sub(w) / 2,
+        y: area.height.saturating_sub(h) / 2,
+        width: w,
+        height: h,
+    };
+    frame.render_widget(term::Clear, box_area);
+    frame.render_widget(
+        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" hulp ")),
+        box_area,
+    );
 }
 
 fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
@@ -1202,7 +1277,7 @@ fn main() -> std::io::Result<()> {
             && let Event::Key(key) = event::read()?
             && key.kind == KeyEventKind::Press
         {
-            app.on_key(key.code);
+            app.on_key(key);
         }
     }
 

@@ -52,6 +52,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `.` | verborgen bestanden tonen |
 | `r` | verversen |
 | `Esc` | selectie wissen, daarna het klembord |
+| `?` | de hulp, met alles wat hier staat |
 | `q` | sluiten |
 
 In de boom staat vóór elke map wat je ervan mag verwachten:
