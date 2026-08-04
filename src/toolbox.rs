@@ -58,6 +58,27 @@ pub enum JsonTool {
     Jq,
 }
 
+/// Who turns a page into text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HtmlTool {
+    /// macOS, and it is WebKit's own importer underneath.
+    Textutil,
+    W3m,
+    Lynx,
+    Html2text,
+}
+
+impl HtmlTool {
+    pub fn name(self) -> &'static str {
+        match self {
+            HtmlTool::Textutil => "textutil",
+            HtmlTool::W3m => "w3m",
+            HtmlTool::Lynx => "lynx",
+            HtmlTool::Html2text => "html2text",
+        }
+    }
+}
+
 /// Where a deleted file goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrashStyle {
@@ -84,6 +105,7 @@ pub struct Toolbox {
     /// Property lists are an Apple format; elsewhere there is nothing to ask.
     pub plutil: Option<PathBuf>,
     pub image: Option<(ImageTool, PathBuf)>,
+    pub html: Option<(HtmlTool, PathBuf)>,
     pub trash: TrashStyle,
     pub osascript: Option<PathBuf>,
     /// BSD `stat` reports file flags; GNU `stat -f` means something else
@@ -121,6 +143,11 @@ pub fn get() -> &'static Toolbox {
             image: which(&["sips"])
                 .map(|p| (ImageTool::Sips, p))
                 .or_else(|| which(&["magick", "convert"]).map(|p| (ImageTool::ImageMagick, p))),
+            html: which(&["textutil"])
+                .map(|p| (HtmlTool::Textutil, p))
+                .or_else(|| which(&["w3m"]).map(|p| (HtmlTool::W3m, p)))
+                .or_else(|| which(&["lynx"]).map(|p| (HtmlTool::Lynx, p)))
+                .or_else(|| which(&["html2text"]).map(|p| (HtmlTool::Html2text, p))),
             trash: if osascript.is_some() {
                 TrashStyle::Finder
             } else {
@@ -194,6 +221,14 @@ pub fn report() -> String {
         "formatting in the preview",
     );
     line(&mut out, "xml", show(&t.xmllint), "formatting in the preview");
+    line(
+        &mut out,
+        "html",
+        t.html
+            .as_ref()
+            .map(|(k, p)| format!("{} ({})", p.display(), k.name())),
+        "reading a page in the preview",
+    );
     line(
         &mut out,
         "images",

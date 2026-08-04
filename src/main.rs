@@ -13,6 +13,7 @@ mod archive;
 mod editor;
 mod fsmodel;
 mod git;
+mod html;
 mod image;
 mod markdown;
 mod ops;
@@ -1714,6 +1715,30 @@ fn build_preview(path: &Path, name: &str, cols: u16, rows: u16) -> Built {
             raw: None,
             note: Some(note),
             picture: true,
+        };
+    }
+
+    // A page is read by whoever already knows how; we only mark the headings.
+    if html::is_html(path) {
+        return match html::render(path) {
+            Ok((lines, source, tool)) => Built {
+                lines,
+                raw: Some(as_styled(source)),
+                note: Some(format!("read by {tool} · t shows the source")),
+                picture: false,
+            },
+            Err(reason) => Built {
+                lines: as_styled(
+                    std::fs::read_to_string(path)
+                        .unwrap_or_default()
+                        .lines()
+                        .map(|l| l.to_string())
+                        .collect(),
+                ),
+                raw: None,
+                note: Some(format!("⚠ {reason}")),
+                picture: false,
+            },
         };
     }
 

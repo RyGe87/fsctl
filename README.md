@@ -144,6 +144,7 @@ FSCTL_ROOTS="$HOME/Development:$HOME/Work" fsctl
 | json and plists | `/usr/bin/plutil` | knows both, and says exactly where a JSON is broken |
 | xml | `/usr/bin/xmllint` | ships with macOS |
 | images | `/usr/bin/sips` | reads everything Apple reads |
+| html | `/usr/bin/textutil` | WebKit's importer, so entities and scripts are handled |
 | archives | `/usr/bin/unzip`, `/usr/bin/zip`, `/usr/bin/tar` | listing and streaming, without unpacking |
 | trash | `/usr/bin/osascript` → Finder | put-back is recorded by whoever moves the file |
 | cloud flags | `/usr/bin/stat` | `st_flags` is not something Rust's std will show |
@@ -261,6 +262,13 @@ rather than a different shape of it.
 
 This is the only format we lay out ourselves — macOS ships no tool for it.
 `snake_case_names` are left alone: an underscore inside a word is not emphasis.
+
+**HTML is read rather than shown**: `textutil` hands over WebKit's own importer,
+which already knows entities, encodings, tables and that a `<script>` is not
+text. On Linux `w3m`, `lynx` or `html2text` do the same. What a terminal misses
+afterwards we add ourselves — which lines were headings, found by scanning the
+source for `<h1>`…`<h6>` — so a page reads with its structure intact. `t` shows
+the source.
 
 **JSON, XML and property lists are formatted** before you see them, by the tools
 macOS already brings: `plutil` for JSON and plists, `xmllint` for XML. No
