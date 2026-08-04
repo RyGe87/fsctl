@@ -47,7 +47,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `W` | de wortel één map omhoog |
 | `spatie` | bestand aan- of afvinken |
 | `c` `x` `v` | kopiëren · knippen · plakken |
-| `p` | in het bestand kijken (`j`/`k` scrollen, `Esc` sluit) |
+| `p` | in het bestand kijken (`j`/`k` en `h`/`l` scrollen, `0` terug, `Esc` sluit) |
 | `d` `Del` | naar de prullenbak (vraagt eerst) |
 | `s` `u` | sorteren (naam/type/datum) · omkeren |
 | `.` | verborgen bestanden tonen |
@@ -130,7 +130,10 @@ met het volledige overzicht in plaats van zeven onderbrekingen.
 ## Een blik in een bestand
 
 `p` opent het bestand onder de cursor in een venster: genummerde regels,
-scrollen met `j`/`k`, `PgUp`/`PgDn` en `g`/`G`. Bedoeld om te bevestigen dat je
+scrollen met `j`/`k`, `PgUp`/`PgDn` en `g`/`G`, en **zijwaarts** met `h`/`l` in
+stappen van acht kolommen (`0` schuift terug naar het begin). Lange regels
+worden dus afgekapt en niet omgebroken — code blijft leesbaar, en wat erbuiten
+valt schuif je in beeld. Bedoeld om te bevestigen dat je
 het juiste bestand te pakken hebt, niet om in te lezen — daarvoor is `Enter`,
 dat de gewone app opent.
 

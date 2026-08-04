@@ -128,6 +128,32 @@ pub fn truncate_start(s: &str, width: usize) -> String {
     format!("…{}", kept.into_iter().collect::<String>())
 }
 
+/// A window onto a line: skip `start` cells, then keep at most `width`.
+///
+/// A double-width character straddling the left edge is dropped rather than
+/// half-drawn — half a glyph is not a thing a terminal can show.
+pub fn window(s: &str, start: usize, width: usize) -> String {
+    if start == 0 {
+        return truncate(s, width);
+    }
+    let mut skipped = 0;
+    let mut out = String::new();
+    let mut used = 0;
+    for c in s.chars() {
+        if skipped < start {
+            skipped += char_width(c);
+            continue;
+        }
+        let w = char_width(c);
+        if used + w > width {
+            break;
+        }
+        out.push(c);
+        used += w;
+    }
+    out
+}
+
 /// Cuts to `width` cells and pads with spaces to exactly that many.
 pub fn fit(s: &str, width: usize) -> String {
     let mut out = truncate(s, width);

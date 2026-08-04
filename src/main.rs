@@ -99,6 +99,10 @@ struct Look {
     name: String,
     lines: Vec<String>,
     offset: usize,
+    /// How far the window has slid sideways, in cells.
+    column: usize,
+    /// The widest line we hold, so sliding stops where the text does.
+    widest: usize,
     /// Set when the file runs on past what we read, or when it is not text at
     /// all and this is the reason why.
     note: Option<String>,
@@ -492,6 +496,13 @@ impl App {
             KeyCode::PageUp => look.offset = look.offset.saturating_sub(height),
             KeyCode::Home | KeyCode::Char('g') => look.offset = 0,
             KeyCode::End | KeyCode::Char('G') => look.offset = last,
+            // Sideways in steps of eight: one column at a time turns reading a
+            // wide line into a chore.
+            KeyCode::Right | KeyCode::Char('l') => {
+                look.column = (look.column + 8).min(look.widest.saturating_sub(8))
+            }
+            KeyCode::Left | KeyCode::Char('h') => look.column = look.column.saturating_sub(8),
+            KeyCode::Char('0') => look.column = 0,
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') | KeyCode::Enter => {
                 self.modal = None;
             }
@@ -513,10 +524,13 @@ impl App {
             ),
             preview::Preview::NotText(reason) => (Vec::new(), Some(reason)),
         };
+        let widest = lines.iter().map(|l| width::str_width(l)).max().unwrap_or(0);
         self.modal = Some(Modal::Look(Look {
             name,
             lines,
             offset: 0,
+            column: 0,
+            widest,
             note,
         }));
     }
@@ -1127,18 +1141,29 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
                     format!("{:>numbers$} ", i + 1, numbers = numbers),
                     Style::new().fg(Color::DarkGray),
                 ),
-                term::Span::raw(width::truncate(line, inner.saturating_sub(numbers + 1))),
+                term::Span::raw(width::window(
+                    line,
+                    look.column,
+                    inner.saturating_sub(numbers + 1),
+                )),
             ]));
         }
     }
 
     let footer = match (&look.note, look.lines.is_empty()) {
         (Some(note), false) => format!("{note}   ·   esc sluiten"),
-        _ => format!(
-            "regel {} van {}   ·   j k scrollen   ·   esc sluiten",
-            (look.offset + 1).min(look.lines.len().max(1)),
-            look.lines.len()
-        ),
+        _ => {
+            let sideways = if look.column > 0 {
+                format!("   ·   kolom {}", look.column + 1)
+            } else {
+                String::new()
+            };
+            format!(
+                "regel {} van {}{sideways}   ·   j k h l scrollen   ·   esc sluiten",
+                (look.offset + 1).min(look.lines.len().max(1)),
+                look.lines.len()
+            )
+        }
     };
     while lines.len() + 1 < rows {
         lines.push(term::Line::default());
@@ -1169,7 +1194,7 @@ fn draw_help(frame: &mut term::Frame) {
         ("Enter", "bestand openen"),
         ("spatie", "bestand aan- of afvinken"),
         ("c x v", "kopiëren · knippen · plakken"),
-        ("p", "in een bestand kijken · j k scrollen"),
+        ("p", "in een bestand kijken · j k h l scrollen · 0 terug"),
         ("d", "naar de prullenbak, na een vraag"),
         ("s u", "sorteren op naam/type/datum · omkeren"),
         (".", "verborgen bestanden tonen"),
