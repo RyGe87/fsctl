@@ -214,6 +214,31 @@ pub fn read(path: &Path) -> Preview {
     }
 }
 
+/// A glance for the pane that follows the cursor: the head of the file, as it
+/// is, and nothing that costs a process. The big window (`p`) is where
+/// formatters and thumbnails belong — this one runs on every arrow key.
+pub fn quick(path: &Path, budget: usize) -> Option<Vec<String>> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    if meta.is_dir() {
+        return None;
+    }
+    let mut buffer = Vec::new();
+    std::fs::File::open(path)
+        .and_then(|f| f.take(budget as u64).read_to_end(&mut buffer))
+        .ok()?;
+    if buffer.is_empty() || buffer.contains(&0) {
+        return None;
+    }
+    let text = match std::str::from_utf8(&buffer) {
+        Ok(text) => text.to_string(),
+        Err(e) if e.valid_up_to() > 0 => {
+            String::from_utf8_lossy(&buffer[..e.valid_up_to()]).to_string()
+        }
+        Err(_) => return None,
+    };
+    Some(split(&text))
+}
+
 /// The same reading, for something that never was a file on disk — a member
 /// streamed out of an archive. No formatter runs here: plutil and xmllint want
 /// a path, and a temporary file is exactly what this avoids.

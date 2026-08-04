@@ -156,7 +156,15 @@ struct Destination {
     offset: usize,
 }
 
+/// A name being typed over an old one.
+struct Rename {
+    path: PathBuf,
+    text: String,
+    cursor: usize,
+}
+
 enum Modal {
+    Rename(Rename),
     Destination(Destination),
     Inside(Inside),
     Fetch(FetchAsk),
@@ -191,6 +199,11 @@ struct App {
     right_height: usize,
     /// The last frame's size, so opening a picture knows how big to make it.
     screen: (u16, u16),
+    /// The pane under the files, which follows the cursor.
+    peek: bool,
+    /// What that pane is showing, and for which file — recomputed only when
+    /// the cursor lands somewhere else.
+    peeked: Option<(PathBuf, Vec<markdown::Styled>)>,
     quit: bool,
 }
 
@@ -225,6 +238,8 @@ impl App {
             left_height: 20,
             right_height: 20,
             screen: (80, 24),
+            peek: true,
+            peeked: None,
             quit: false,
         };
         app.rebuild_left();
@@ -450,6 +465,15 @@ impl App {
                 self.rebuild_right();
             }
             KeyCode::Char('?') => self.modal = Some(Modal::Help),
+            KeyCode::Char('P') => {
+                self.peek = !self.peek;
+                self.status = if self.peek {
+                    "preview pane on".into()
+                } else {
+                    "preview pane off".into()
+                };
+            }
+            KeyCode::Char('R') => self.ask_rename(),
             KeyCode::Char('p') => self.look(),
             KeyCode::Char('x') | KeyCode::Delete => self.delete(),
             KeyCode::Char('z') => self.compress(),
@@ -481,6 +505,7 @@ impl App {
     fn on_modal_key(&mut self, code: KeyCode) {
         match self.modal {
             Some(Modal::Delete(_)) => self.on_delete_key(code),
+            Some(Modal::Rename(_)) => self.on_rename_key(code),
             Some(Modal::Destination(_)) => self.on_destination_key(code),
             Some(Modal::Inside(_)) => self.on_inside_key(code),
             Some(Modal::Fetch(_)) => self.on_fetch_key(code),
@@ -683,7 +708,7 @@ impl App {
             KeyCode::Home | KeyCode::Char('g') => inside.cursor = 0,
             KeyCode::End | KeyCode::Char('G') => inside.cursor = last,
             KeyCode::Enter | KeyCode::Char('p') => self.look_at_member(),
-            KeyCode::Char('e') => self.take_member_out(),
+            KeyCode::Char('u') => self.take_member_out(),
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.modal = None;
             }
@@ -1072,6 +1097,124 @@ impl App {
             folders,
             concealing,
         }));
+    }
+
+    /// A new name for the row you are on, offered as the old one.
+    fn ask_rename(&mut self) {
+        let (path, name) = match self.focus {
+            Focus::Right => match self.items.get(self.right_cursor) {
+                Some(item) => (item.path.clone(), item.name.clone()),
+                None => return,
+            },
+            Focus::Left => match self.current_path() {
+                Some(path) if Some(&path) != Some(&self.root) => {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_default();
+                    (path, name)
+                }
+                _ => {
+                    self.status = "the root of the tree keeps its name".into();
+                    return;
+                }
+            },
+        };
+        // The cursor sits at the end of the stem, so a typo in the name is one
+        // keystroke away and the extension is not in the way.
+        let at = name.rfind('.').filter(|i| *i > 0).unwrap_or(name.len());
+        self.modal = Some(Modal::Rename(Rename {
+            path,
+            text: name,
+            cursor: at,
+        }));
+    }
+
+    fn on_rename_key(&mut self, code: KeyCode) {
+        let Some(Modal::Rename(rename)) = &mut self.modal else {
+            return;
+        };
+        match code {
+            KeyCode::Char(c) => {
+                rename.text.insert(rename.cursor, c);
+                rename.cursor += c.len_utf8();
+            }
+            KeyCode::Backspace => {
+                if let Some((at, c)) = rename.text[..rename.cursor].char_indices().next_back() {
+                    rename.text.remove(at);
+                    rename.cursor = at.min(rename.text.len());
+                    let _ = c;
+                }
+            }
+            KeyCode::Delete => {
+                if rename.cursor < rename.text.len() {
+                    rename.text.remove(rename.cursor);
+                }
+            }
+            KeyCode::Left => {
+                rename.cursor = rename.text[..rename.cursor]
+                    .char_indices()
+                    .next_back()
+                    .map(|(i, _)| i)
+                    .unwrap_or(0)
+            }
+            KeyCode::Right => {
+                rename.cursor = rename.text[rename.cursor..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(i, _)| rename.cursor + i)
+                    .unwrap_or(rename.text.len())
+            }
+            KeyCode::Home => rename.cursor = 0,
+            KeyCode::End => rename.cursor = rename.text.len(),
+            KeyCode::Enter => {
+                let (path, text) = (rename.path.clone(), rename.text.trim().to_string());
+                self.modal = None;
+                self.do_rename(&path, &text);
+            }
+            KeyCode::Esc => {
+                self.modal = None;
+                self.status = "name kept".into();
+            }
+            _ => {}
+        }
+    }
+
+    fn do_rename(&mut self, path: &Path, name: &str) {
+        let old = path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if name.is_empty() || name == old {
+            self.status = "name kept".into();
+            return;
+        }
+        // A slash would move the file somewhere else, which is what m is for.
+        if name.contains('/') {
+            self.status = "a name cannot hold a slash".into();
+            return;
+        }
+        let Some(parent) = path.parent() else {
+            return;
+        };
+        let target = parent.join(name);
+        if target.symlink_metadata().is_ok() {
+            self.status = format!("{name} already exists");
+            return;
+        }
+        self.status = match std::fs::rename(path, &target) {
+            Ok(()) => format!("{old} → {name}"),
+            Err(e) => format!("could not rename: {e}"),
+        };
+        // The tree may have been holding the old name open.
+        if self.expanded.remove(path) {
+            self.expanded.insert(target.clone());
+        }
+        if self.root == path {
+            self.root = target;
+        }
+        self.rebuild_left();
+        self.rebuild_right();
     }
 
     /// Opens the tree as a question: where does this go?
@@ -1482,6 +1625,59 @@ fn right_rows(app: &App, width_cells: usize) -> Vec<Row> {
         .collect()
 }
 
+/// The pane under the listing: the head of whatever the cursor is on.
+///
+/// Only what is free — text, and markdown laid out by us. Formatters and
+/// thumbnails cost a process, and this runs on every arrow key; those live
+/// behind `p`, where you asked for them.
+fn draw_peek(frame: &mut term::Frame, app: &mut App, area: Rect) {
+    let item = app.items.get(app.right_cursor).cloned();
+    let inner_w = area.width.saturating_sub(2) as usize;
+    let rows = area.height.saturating_sub(2) as usize;
+
+    let (title, lines) = match &item {
+        None => (" preview ".to_string(), Vec::new()),
+        Some(item) => {
+            let fresh = app
+                .peeked
+                .as_ref()
+                .map(|(p, _)| *p != item.path)
+                .unwrap_or(true);
+            if fresh {
+                let budget = 8 * 1024;
+                let styled = match preview::quick(&item.path, budget) {
+                    Some(lines) if item.name.to_lowercase().ends_with(".md") => {
+                        markdown::render(&lines)
+                    }
+                    Some(lines) => as_styled(lines),
+                    None => as_styled(vec![format!(
+                        "{} · {} — p for a closer look",
+                        item.kind(),
+                        fsmodel::human_size(item.size, item.is_dir)
+                    )]),
+                };
+                app.peeked = Some((item.path.clone(), styled));
+            }
+            let lines = app
+                .peeked
+                .as_ref()
+                .map(|(_, l)| l.clone())
+                .unwrap_or_default();
+            (format!(" {} ", width::truncate(&item.name, inner_w)), lines)
+        }
+    };
+
+    let text: Vec<term::Line> = lines
+        .iter()
+        .take(rows)
+        .map(|line| term::Line::from(window_of(line, 0, inner_w)))
+        .collect();
+    frame.render_widget(
+        term::Paragraph::new(term::Text::from(text)).block(Block::bordered().title(title)),
+        area,
+    );
+}
+
 fn status_line(app: &App, width_cells: usize) -> String {
     let mut left = format!(" {}", app.status);
     let mut right = format!("sort: {}", app.sort.label());
@@ -1513,6 +1709,17 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
         Layout::vertical([Constraint::Min(3), Constraint::Length(1)]).areas(frame.area());
     let [left, right] =
         Layout::horizontal([Constraint::Length(LEFT_WIDTH), Constraint::Min(20)]).areas(main);
+
+    // A third of the height for the glance, but never so much that the listing
+    // has nothing left to show.
+    let peek_height = if app.peek && right.height >= 14 {
+        (right.height / 3).clamp(5, 14)
+    } else {
+        0
+    };
+    let [files, peek] =
+        Layout::vertical([Constraint::Min(5), Constraint::Length(peek_height)]).areas(right);
+    let right = files;
 
     app.screen = (frame.area().width, frame.area().height);
     app.left_height = left.height.saturating_sub(2) as usize;
@@ -1561,6 +1768,10 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
         right,
     );
 
+    if peek_height > 0 {
+        draw_peek(frame, app, peek);
+    }
+
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
             status_line(app, status.width as usize),
@@ -1572,6 +1783,7 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     match &app.modal {
         Some(Modal::Conflict(conflict)) => draw_conflict(frame, conflict, app),
         Some(Modal::Delete(ask)) => draw_delete(frame, ask),
+        Some(Modal::Rename(rename)) => draw_rename(frame, rename),
         Some(Modal::Destination(pick)) => draw_destination(frame, pick, app),
         Some(Modal::Inside(inside)) => draw_inside(frame, inside),
         Some(Modal::Fetch(ask)) => draw_fetch(frame, ask),
@@ -1673,7 +1885,7 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
 /// Everything the bottom bar used to say, at the moment you ask for it.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 18] = [
+    let rows: [(&str, &str); 20] = [
         ("1 2 3", "folders · repositories · unsaved work"),
         ("Tab", "switch column"),
         ("j k ↑ ↓", "move · J K by ten · PgUp/PgDn by screen"),
@@ -1684,12 +1896,14 @@ fn draw_help(frame: &mut term::Frame) {
         ("space", "tick a file"),
         ("c m v", "copy · move (asks where to) · paste"),
         ("p", "look into a file · j k up and down · d f sideways"),
-        ("", "   in a zip: enter looks, e extracts here"),
+        ("", "   in a zip: enter looks, u unpacks here"),
         ("", "   json/xml are formatted · t shows the original"),
         ("z", "pack the selection into a zip, here"),
         ("x", "to the trash, after a question"),
         ("s u", "sort by name/type/date · reverse"),
         (".", "show hidden files"),
+        ("R", "rename what the cursor is on"),
+        ("P", "the preview pane under the files"),
         ("r", "refresh"),
         ("q", "close, where you stood"),
     ];
@@ -1729,6 +1943,49 @@ fn draw_help(frame: &mut term::Frame) {
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
         term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" help ")),
+        box_area,
+    );
+}
+
+fn draw_rename(frame: &mut term::Frame, rename: &Rename) {
+    let area = frame.area();
+    let w = area.width.min(60).max(24);
+    let h = 5u16.min(area.height);
+    let box_area = Rect {
+        x: area.width.saturating_sub(w) / 2,
+        y: area.height.saturating_sub(h) / 2,
+        width: w,
+        height: h,
+    };
+    let inner = w.saturating_sub(2) as usize;
+
+    // The caret sits in the text, drawn rather than moved: the real cursor is
+    // hidden, and one reversed cell says more than a blinking bar.
+    let (before, after) = rename.text.split_at(rename.cursor);
+    let (at, rest) = match after.char_indices().nth(1) {
+        Some((i, _)) => after.split_at(i),
+        None => (after, ""),
+    };
+    let line = term::Line::from(vec![
+        term::Span::raw(before.to_string()),
+        term::Span::styled(
+            if at.is_empty() { " ".to_string() } else { at.to_string() },
+            Style::new().add_modifier(Modifier::REVERSED),
+        ),
+        term::Span::raw(rest.to_string()),
+    ]);
+
+    frame.render_widget(term::Clear, box_area);
+    frame.render_widget(
+        term::Paragraph::new(term::Text::from(vec![
+            line,
+            term::Line::from(term::Span::raw("")),
+            term::Line::from(term::Span::styled(
+                width::fit("enter rename   ·   esc keep the old name", inner),
+                Style::new().fg(Color::DarkGray),
+            )),
+        ]))
+        .block(Block::bordered().title(" Rename ")),
         box_area,
     );
 }
@@ -1834,7 +2091,7 @@ fn draw_inside(frame: &mut term::Frame, inside: &Inside) {
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
             width::fit(
-                "enter look   ·   e extract here   ·   esc close",
+                "enter look   ·   u unpack here   ·   esc close",
                 inner,
             ),
             Style::new().fg(Color::DarkGray),
