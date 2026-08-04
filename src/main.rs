@@ -56,6 +56,47 @@ impl Source {
     }
 }
 
+/// How much of the right column the listing keeps for itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pane {
+    /// All of it. Looking and writing happen in a window over the top.
+    Files,
+    /// A strip at the bottom that follows the cursor, cheaply.
+    Peek,
+    /// Half and half, and then the strip does the full job: formatted, and
+    /// written in place.
+    Split,
+}
+
+impl Pane {
+    fn next(self) -> Pane {
+        match self {
+            Pane::Files => Pane::Peek,
+            Pane::Peek => Pane::Split,
+            Pane::Split => Pane::Files,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Pane::Files => "files only",
+            Pane::Peek => "a strip below",
+            Pane::Split => "half and half",
+        }
+    }
+
+    /// What the pane gets, out of the height the right column has.
+    fn height(self, room: u16) -> u16 {
+        match self {
+            Pane::Files => 0,
+            Pane::Peek if room >= 14 => (room / 3).clamp(5, 14),
+            // A shade more than half: the file being read is what you came for.
+            Pane::Split if room >= 12 => (room * 55 / 100).max(6),
+            _ => 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
     Left,
@@ -201,11 +242,11 @@ struct App {
     right_height: usize,
     /// The last frame's size, so opening a picture knows how big to make it.
     screen: (u16, u16),
-    /// The pane under the files, which follows the cursor.
-    peek: bool,
-    /// What that pane is showing, and for which file — recomputed only when
-    /// the cursor lands somewhere else.
-    peeked: Option<(PathBuf, Vec<markdown::Styled>)>,
+    /// How the right column is divided.
+    pane: Pane,
+    /// What the pane is showing, for which file and at which size — recomputed
+    /// when any of those three change.
+    peeked: Option<(PathBuf, (u16, u16), Vec<markdown::Styled>, Option<String>)>,
     quit: bool,
 }
 
@@ -240,7 +281,7 @@ impl App {
             left_height: 20,
             right_height: 20,
             screen: (80, 24),
-            peek: true,
+            pane: Pane::Split,
             peeked: None,
             quit: false,
         };
@@ -474,12 +515,9 @@ impl App {
             }
             KeyCode::Char('?') => self.modal = Some(Modal::Help),
             KeyCode::Char('P') => {
-                self.peek = !self.peek;
-                self.status = if self.peek {
-                    "preview pane on".into()
-                } else {
-                    "preview pane off".into()
-                };
+                self.pane = self.pane.next();
+                self.peeked = None;
+                self.status = format!("layout: {}", self.pane.label());
             }
             KeyCode::Char('R') => self.ask_rename(),
             KeyCode::Char('e') => self.edit(),
@@ -626,60 +664,19 @@ impl App {
     }
 
     fn preview_of(&mut self, path: PathBuf, name: String) {
-        if image::is_image(&path) {
-            // The same box the text uses, measured the same way.
-            let (w, h) = self.screen;
-            let cols = w.saturating_sub(8) as usize;
-            let rows = h.saturating_sub(7) as usize;
-            let (lines, note) = match image::thumbnail(&path, cols, rows) {
-                Ok((lines, note)) => (lines, note),
-                Err(reason) => (Vec::new(), reason),
-            };
-            let widest = widest_of(&lines);
-            self.modal = Some(Modal::Look(Look {
-                name,
-                lines,
-                raw: None,
-                showing_raw: false,
-                offset: 0,
-                column: 0,
-                widest,
-                note: Some(note),
-                picture: true,
-                back: None,
-            }));
-            return;
-        }
-
-        let markdown = matches!(
-            path.extension()
-                .map(|e| e.to_string_lossy().to_lowercase())
-                .as_deref(),
-            Some("md" | "markdown" | "mdown" | "mkd")
-        );
-        let (plain, formatted_raw, mut note) = match preview::read(&path) {
-            preview::Preview::Text { lines, raw, note } => (lines, raw, note),
-            preview::Preview::NotText(reason) => (Vec::new(), None, Some(reason)),
-        };
-
-        let (lines, raw) = if markdown && !plain.is_empty() {
-            note = Some("rendered · t shows the source".to_string());
-            (markdown::render(&plain), Some(as_styled(plain)))
-        } else {
-            (as_styled(plain), formatted_raw.map(as_styled))
-        };
-
-        let widest = widest_of(&lines);
+        let (w, h) = self.screen;
+        let built = build_preview(&path, &name, w.saturating_sub(8), h.saturating_sub(7));
+        let widest = widest_of(&built.lines);
         self.modal = Some(Modal::Look(Look {
             name,
-            lines,
-            raw,
+            lines: built.lines,
+            raw: built.raw,
             showing_raw: false,
             offset: 0,
             column: 0,
             widest,
-            note,
-            picture: false,
+            note: built.note,
+            picture: built.picture,
             back: None,
         }));
     }
@@ -1515,6 +1512,58 @@ fn push_children(
     }
 }
 
+/// A file made ready to look at: formatted where a tool knows how, rendered
+/// where markdown asks for it, drawn as blocks where it is a picture.
+///
+/// The same work for the window and for the pane at the bottom, so the two can
+/// never disagree about what a file looks like.
+struct Built {
+    lines: Vec<markdown::Styled>,
+    raw: Option<Vec<markdown::Styled>>,
+    note: Option<String>,
+    picture: bool,
+}
+
+fn build_preview(path: &Path, name: &str, cols: u16, rows: u16) -> Built {
+    if image::is_image(path) {
+        let (lines, note) = match image::thumbnail(path, cols as usize, rows as usize) {
+            Ok((lines, note)) => (lines, note),
+            Err(reason) => (Vec::new(), reason),
+        };
+        return Built {
+            lines,
+            raw: None,
+            note: Some(note),
+            picture: true,
+        };
+    }
+
+    let markdown_file = matches!(
+        path.extension()
+            .map(|e| e.to_string_lossy().to_lowercase())
+            .as_deref(),
+        Some("md" | "markdown" | "mdown" | "mkd")
+    );
+    let (plain, formatted_raw, mut note) = match preview::read(path) {
+        preview::Preview::Text { lines, raw, note } => (lines, raw, note),
+        preview::Preview::NotText(reason) => (Vec::new(), None, Some(reason)),
+    };
+    let _ = name;
+
+    let (lines, raw) = if markdown_file && !plain.is_empty() {
+        note = Some("rendered · t shows the source".to_string());
+        (markdown::render(&plain), Some(as_styled(plain)))
+    } else {
+        (as_styled(plain), formatted_raw.map(as_styled))
+    };
+    Built {
+        lines,
+        raw,
+        note,
+        picture: false,
+    }
+}
+
 /// Plain text as the drawing side wants it: one piece, no styling.
 fn as_styled(lines: Vec<String>) -> Vec<markdown::Styled> {
     lines
@@ -1722,53 +1771,80 @@ fn right_rows(app: &App, width_cells: usize) -> Vec<Row> {
         .collect()
 }
 
-/// The pane under the listing: the head of whatever the cursor is on.
+/// The pane under the listing.
 ///
-/// Only what is free — text, and markdown laid out by us. Formatters and
-/// thumbnails cost a process, and this runs on every arrow key; those live
-/// behind `p`, where you asked for them.
+/// In `Peek` it shows only what is free — the head of the text, markdown laid
+/// out by us — because it runs on every arrow key. In `Split` it does the whole
+/// job, formatters and thumbnails included: at half the screen it *is* the
+/// reading, so it had better show the file the way the window would.
 fn draw_peek(frame: &mut term::Frame, app: &mut App, area: Rect) {
     let item = app.items.get(app.right_cursor).cloned();
-    let inner_w = area.width.saturating_sub(2) as usize;
-    let rows = area.height.saturating_sub(2) as usize;
+    let inner_w = area.width.saturating_sub(2);
+    let inner_h = area.height.saturating_sub(2);
+    let rows = inner_h as usize;
 
-    let (title, lines) = match &item {
-        None => (" preview ".to_string(), Vec::new()),
+    let (title, lines, note) = match &item {
+        None => (" preview ".to_string(), Vec::new(), None),
         Some(item) => {
-            let fresh = app
+            let size = (inner_w, inner_h);
+            let stale = app
                 .peeked
                 .as_ref()
-                .map(|(p, _)| *p != item.path)
+                .map(|(p, s, _, _)| *p != item.path || *s != size)
                 .unwrap_or(true);
-            if fresh {
-                let budget = 8 * 1024;
-                let styled = match preview::quick(&item.path, budget) {
-                    Some(lines) if item.name.to_lowercase().ends_with(".md") => {
-                        markdown::render(&lines)
+            if stale {
+                let (styled, note) = match app.pane {
+                    Pane::Split => {
+                        let built = build_preview(&item.path, &item.name, inner_w, inner_h);
+                        (built.lines, built.note)
                     }
-                    Some(lines) => as_styled(lines),
-                    None => as_styled(vec![format!(
-                        "{} · {} — p for a closer look",
-                        item.kind(),
-                        fsmodel::human_size(item.size, item.is_dir)
-                    )]),
+                    _ => {
+                        let cheap = match preview::quick(&item.path, 8 * 1024) {
+                            Some(lines) if item.name.to_lowercase().ends_with(".md") => {
+                                markdown::render(&lines)
+                            }
+                            Some(lines) => as_styled(lines),
+                            None => as_styled(vec![format!(
+                                "{} · {} — p for a closer look",
+                                item.kind(),
+                                fsmodel::human_size(item.size, item.is_dir)
+                            )]),
+                        };
+                        (cheap, None)
+                    }
                 };
-                app.peeked = Some((item.path.clone(), styled));
+                app.peeked = Some((item.path.clone(), size, styled, note));
             }
-            let lines = app
+            let (lines, note) = app
                 .peeked
                 .as_ref()
-                .map(|(_, l)| l.clone())
+                .map(|(_, _, l, n)| (l.clone(), n.clone()))
                 .unwrap_or_default();
-            (format!(" {} ", width::truncate(&item.name, inner_w)), lines)
+            (
+                format!(" {} ", width::truncate(&item.name, inner_w as usize)),
+                lines,
+                note,
+            )
         }
     };
 
-    let text: Vec<term::Line> = lines
+    // The note earns its line only when the pane is tall enough to spare one.
+    let body = if note.is_some() && rows > 3 { rows - 1 } else { rows };
+    let mut text: Vec<term::Line> = lines
         .iter()
-        .take(rows)
-        .map(|line| term::Line::from(window_of(line, 0, inner_w)))
+        .take(body)
+        .map(|line| term::Line::from(window_of(line, 0, inner_w as usize)))
         .collect();
+    if let Some(note) = note.filter(|_| rows > 3) {
+        while text.len() < body {
+            text.push(term::Line::default());
+        }
+        text.push(term::Line::from(term::Span::styled(
+            width::fit(&note, inner_w as usize),
+            Style::new().fg(Color::DarkGray),
+        )));
+    }
+
     frame.render_widget(
         term::Paragraph::new(term::Text::from(text)).block(Block::bordered().title(title)),
         area,
@@ -1807,13 +1883,7 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     let [left, right] =
         Layout::horizontal([Constraint::Length(LEFT_WIDTH), Constraint::Min(20)]).areas(main);
 
-    // A third of the height for the glance, but never so much that the listing
-    // has nothing left to show.
-    let peek_height = if app.peek && right.height >= 14 {
-        (right.height / 3).clamp(5, 14)
-    } else {
-        0
-    };
+    let peek_height = app.pane.height(right.height);
     let [files, peek] =
         Layout::vertical([Constraint::Min(5), Constraint::Length(peek_height)]).areas(right);
     let right = files;
@@ -1890,8 +1960,12 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
         }
         _ => {}
     }
+    let editing_in_pane = app.pane == Pane::Split && peek_height > 0;
     match &mut app.modal {
-        Some(Modal::Edit(buffer)) => draw_edit(frame, buffer),
+        Some(Modal::Edit(buffer)) => {
+            let area = if editing_in_pane { peek } else { frame.area() };
+            draw_edit(frame, buffer, area)
+        }
         Some(Modal::Rename(rename)) => draw_rename(frame, rename),
         Some(Modal::Inside(inside)) => draw_inside(frame, inside),
         Some(Modal::Fetch(ask)) => draw_fetch(frame, ask),
@@ -2013,7 +2087,7 @@ fn draw_help(frame: &mut term::Frame) {
         (".", "show hidden files"),
         ("R", "rename what the cursor is on"),
         ("e", "edit a text file · ctrl-s saves · esc closes"),
-        ("P", "the preview pane under the files"),
+        ("P", "the layout: files only · a strip below · half and half"),
         ("r", "refresh"),
         ("q", "close, where you stood"),
     ];
@@ -2057,13 +2131,22 @@ fn draw_help(frame: &mut term::Frame) {
     );
 }
 
-fn draw_edit(frame: &mut term::Frame, buffer: &mut editor::Editor) {
-    let area = frame.area();
-    let w = area.width.saturating_sub(4).max(24);
-    let h = area.height.saturating_sub(2).max(6);
+fn draw_edit(frame: &mut term::Frame, buffer: &mut editor::Editor, area: Rect) {
+    // Given the whole screen it centres itself; given the pane it fills it.
+    let full = area == frame.area();
+    let w = if full {
+        area.width.saturating_sub(4).max(24)
+    } else {
+        area.width
+    };
+    let h = if full {
+        area.height.saturating_sub(2).max(6)
+    } else {
+        area.height
+    };
     let box_area = Rect {
-        x: (area.width - w) / 2,
-        y: (area.height - h) / 2,
+        x: area.x + (area.width - w) / 2,
+        y: area.y + (area.height - h) / 2,
         width: w,
         height: h,
     };

@@ -82,7 +82,7 @@ After that `f` is your file manager, and where you leave it is where you stand.
 | `p` | look into the file (`j`/`k` up and down, `d`/`f` sideways, `t` raw) |
 | `e` | edit a text file (`ctrl-s` saves, `esc` closes) |
 | `R` | rename what the cursor is on |
-| `P` | turn the preview pane under the files on or off |
+| `P` | the layout: files only · a strip below · half and half |
 | `x` `Del` | to the trash (asks first) |
 | `s` `u` | sort by name/type/date · reverse |
 | `.` | show hidden files |
@@ -198,13 +198,28 @@ Pack the folder you are standing in and the archive lands beside it — an archi
 that contains itself is a riddle. An existing name is never overwritten; it
 becomes `name-2.zip`.
 
-## The pane under the files
+## Three layouts
 
-The right column is split: the listing on top, a glance at whatever the cursor
-is on underneath. That pane only does what is free — the head of the text,
-markdown laid out by us — because it runs on every arrow key. Formatters and
-thumbnails cost a process and stay behind `p`, where you asked for them. `P`
-turns the pane off.
+`P` cycles the right column through three divisions:
+
+| | the listing | the pane below |
+|---|---|---|
+| **files only** | all of it | — · `p` and `e` open a window |
+| **a strip below** | most of it | the head of the text, and only what is free |
+| **half and half** | half | the whole job: formatted, and written in place |
+
+**Half and half** is the default. There the pane is not a glance but the reading
+itself, so it shows the file exactly as the window would: JSON and XML laid out,
+markdown rendered, a picture as a thumbnail, and a broken JSON with plutil's
+complaint under it. `e` then writes *in that pane* instead of over the whole
+screen, so the listing stays where it was while you type.
+
+**A strip below** keeps the same pane cheap: the head of the text and nothing
+that costs a process, because there it runs on every arrow key. Formatters and
+thumbnails stay behind `p`.
+
+Everything is recomputed only when the file under the cursor changes, or when
+the pane changes size.
 
 ## Renaming
 
