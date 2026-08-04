@@ -140,6 +140,17 @@ valt schuif je in beeld. Bedoeld om te bevestigen dat je
 het juiste bestand te pakken hebt, niet om in te lezen — daarvoor is `Enter`,
 dat de gewone app opent.
 
+**Markdown wordt gerenderd**: koppen vet zonder hun hekjes, `-` wordt `•`,
+`**sterk**` en `_nadruk_` verliezen hun tekens maar houden hun nadruk, code
+kleurt, een citaat krijgt een streep, `---` wordt een lijn, en in een codeblok
+blijft alles staan zoals het er staat. Elke bronregel blijft één schermregel,
+zodat de regelnummers blijven kloppen en `t` je hetzelfde bestand toont in
+plaats van een andere vorm ervan.
+
+Dit is het enige formaat dat we zélf opmaken — macOS brengt er geen tool voor
+mee. `snake_case_namen` worden met rust gelaten: een liggend streepje midden in
+een woord is geen nadruk.
+
 **JSON, XML en property lists worden opgemaakt** voor je ze ziet, door de tools
 die macOS zelf meebrengt: `plutil` voor JSON en plists, `xmllint` voor XML. Wij
 schrijven hier geen parsers. `t` toont het origineel zoals het op schijf staat.

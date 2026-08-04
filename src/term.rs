@@ -67,6 +67,7 @@ pub struct Modifier(u8);
 impl Modifier {
     pub const BOLD: Modifier = Modifier(1);
     pub const REVERSED: Modifier = Modifier(2);
+    pub const ITALIC: Modifier = Modifier(4);
 
     fn contains(self, other: Modifier) -> bool {
         self.0 & other.0 == other.0
@@ -123,6 +124,9 @@ impl Style {
         }
         if self.modifiers.contains(Modifier::REVERSED) {
             codes.push("7");
+        }
+        if self.modifiers.contains(Modifier::ITALIC) {
+            codes.push("3");
         }
         if let Some(fg) = self.fg {
             codes.push(fg.fg_code());

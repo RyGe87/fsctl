@@ -11,6 +11,7 @@
 
 mod fsmodel;
 mod git;
+mod markdown;
 mod ops;
 mod preview;
 mod term;
@@ -97,9 +98,10 @@ struct DeleteAsk {
 /// A look inside a file: the lines we read, and how far down we have walked.
 struct Look {
     name: String,
-    lines: Vec<String>,
-    /// The file as it reads on disk, when a formatter rearranged it.
-    raw: Option<Vec<String>>,
+    lines: Vec<markdown::Styled>,
+    /// The file as it reads on disk, when a formatter or a renderer changed
+    /// how it looks.
+    raw: Option<Vec<markdown::Styled>>,
     showing_raw: bool,
     offset: usize,
     /// How far the window has slid sideways, in cells.
@@ -516,7 +518,7 @@ impl App {
                     look.showing_raw = !look.showing_raw;
                     look.offset = 0;
                     look.column = 0;
-                    look.widest = look.lines.iter().map(|l| width::str_width(l)).max().unwrap_or(0);
+                    look.widest = widest_of(&look.lines);
                 }
             }
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') | KeyCode::Enter => {
@@ -533,11 +535,26 @@ impl App {
             return;
         };
         let name = item.name.clone();
-        let (lines, raw, note) = match preview::read(&item.path) {
+        let markdown = matches!(
+            item.path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .as_deref(),
+            Some("md" | "markdown" | "mdown" | "mkd")
+        );
+        let (plain, formatted_raw, mut note) = match preview::read(&item.path) {
             preview::Preview::Text { lines, raw, note } => (lines, raw, note),
             preview::Preview::NotText(reason) => (Vec::new(), None, Some(reason)),
         };
-        let widest = lines.iter().map(|l| width::str_width(l)).max().unwrap_or(0);
+
+        let (lines, raw) = if markdown && !plain.is_empty() {
+            note = Some("opgemaakt · t toont de bron".to_string());
+            (markdown::render(&plain), Some(as_styled(plain)))
+        } else {
+            (as_styled(plain), formatted_raw.map(as_styled))
+        };
+
+        let widest = widest_of(&lines);
         self.modal = Some(Modal::Look(Look {
             name,
             lines,
@@ -866,6 +883,46 @@ impl App {
     }
 }
 
+/// Plain text as the drawing side wants it: one piece, no styling.
+fn as_styled(lines: Vec<String>) -> Vec<markdown::Styled> {
+    lines
+        .into_iter()
+        .map(|line| vec![(line, Style::new())])
+        .collect()
+}
+
+fn widest_of(lines: &[markdown::Styled]) -> usize {
+    lines
+        .iter()
+        .map(|line| line.iter().map(|(t, _)| width::str_width(t)).sum::<usize>())
+        .max()
+        .unwrap_or(0)
+}
+
+/// The sideways window, across pieces: skip `start` cells, keep `width`.
+fn window_of(line: &markdown::Styled, start: usize, width: usize) -> Vec<term::Span<'static>> {
+    let mut out = Vec::new();
+    let mut passed = 0;
+    let mut used = 0;
+    for (text, style) in line {
+        if used >= width {
+            break;
+        }
+        let cells = width::str_width(text);
+        if passed + cells <= start {
+            passed += cells;
+            continue;
+        }
+        let piece = width::window(text, start.saturating_sub(passed), width - used);
+        passed += cells;
+        used += width::str_width(&piece);
+        if !piece.is_empty() {
+            out.push(term::Span::styled(piece, *style));
+        }
+    }
+    out
+}
+
 fn dirs_home() -> PathBuf {
     std::env::var("HOME").map(PathBuf::from).unwrap_or_default()
 }
@@ -1151,17 +1208,16 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
             .skip(look.offset)
             .take(rows.saturating_sub(1))
         {
-            lines.push(term::Line::from(vec![
-                term::Span::styled(
-                    format!("{:>numbers$} ", i + 1, numbers = numbers),
-                    Style::new().fg(Color::DarkGray),
-                ),
-                term::Span::raw(width::window(
-                    line,
-                    look.column,
-                    inner.saturating_sub(numbers + 1),
-                )),
-            ]));
+            let mut spans = vec![term::Span::styled(
+                format!("{:>numbers$} ", i + 1, numbers = numbers),
+                Style::new().fg(Color::DarkGray),
+            )];
+            spans.extend(window_of(
+                line,
+                look.column,
+                inner.saturating_sub(numbers + 1),
+            ));
+            lines.push(term::Line::from(spans));
         }
     }
 
