@@ -102,15 +102,15 @@ pub struct Outcome {
 impl Outcome {
     pub fn summary(&self, mode: Mode) -> String {
         self.summary_of(match mode {
-            Mode::Copy => "gekopieerd",
-            Mode::Cut => "verplaatst",
+            Mode::Copy => "copied",
+            Mode::Cut => "moved",
         })
     }
 
     pub fn summary_of(&self, verb: &str) -> String {
         let mut text = format!("{} {verb}", self.done);
         if self.skipped > 0 {
-            text.push_str(&format!(", {} overgeslagen", self.skipped));
+            text.push_str(&format!(", {} skipped", self.skipped));
         }
         if let Some(first) = self.errors.first() {
             text.push_str(&format!(" — {first}"));
@@ -137,7 +137,7 @@ pub fn paste(clip: &Clipboard, dest: &Path, how: Resolution) -> Outcome {
         if dest.starts_with(src) {
             outcome
                 .errors
-                .push(format!("{name}: kan niet in zichzelf plakken"));
+                .push(format!("{name}: cannot paste into itself"));
             continue;
         }
         let clashes = existing.contains(src);
@@ -192,7 +192,7 @@ fn run(program: &str, flags: &[&str], src: &Path, target: &Path) -> Result<(), S
         .lines()
         .next()
         .and_then(|l| l.rsplit(": ").next())
-        .unwrap_or("mislukt")
+        .unwrap_or("failed")
         .to_string())
 }
 
@@ -250,7 +250,7 @@ fn by_hand(items: &[PathBuf], mut outcome: Outcome) -> Outcome {
     let trash = match std::env::var("HOME") {
         Ok(home) => Path::new(&home).join(".Trash"),
         Err(_) => {
-            outcome.errors.push("geen thuismap gevonden".to_string());
+            outcome.errors.push("no home directory".to_string());
             return outcome;
         }
     };
@@ -271,7 +271,7 @@ fn by_hand(items: &[PathBuf], mut outcome: Outcome) -> Outcome {
     if outcome.done > 0 && outcome.errors.is_empty() {
         outcome
             .errors
-            .push("via ~/.Trash, zonder 'Zet terug'".to_string());
+            .push("via ~/.Trash, without Put Back".to_string());
     }
     outcome
 }
@@ -283,9 +283,9 @@ fn by_hand(items: &[PathBuf], mut outcome: Outcome) -> Outcome {
 /// `/Users/you/…` of the machine it was made on.
 pub fn compress(items: &[PathBuf], dest_dir: &Path) -> Result<PathBuf, String> {
     if items.is_empty() {
-        return Err("niets geselecteerd".to_string());
+        return Err("nothing selected".to_string());
     }
-    let base = common_parent(items).ok_or("geen gemeenschappelijke map")?;
+    let base = common_parent(items).ok_or("no common folder")?;
     let relative: Vec<PathBuf> = items
         .iter()
         .map(|p| p.strip_prefix(&base).unwrap_or(p).to_path_buf())
@@ -297,12 +297,12 @@ pub fn compress(items: &[PathBuf], dest_dir: &Path) -> Result<PathBuf, String> {
         items[0]
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "archief".to_string())
+            .unwrap_or_else(|| "archive".to_string())
     } else {
         dest_dir
             .file_name()
             .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_else(|| "archief".to_string())
+            .unwrap_or_else(|| "archive".to_string())
     };
     let target = if dest_dir.join(format!("{stem}.zip")).symlink_metadata().is_ok() {
         free_name(dest_dir, &format!("{stem}.zip"))
@@ -321,7 +321,7 @@ pub fn compress(items: &[PathBuf], dest_dir: &Path) -> Result<PathBuf, String> {
         return Err(String::from_utf8_lossy(&out.stderr)
             .lines()
             .next()
-            .unwrap_or("inpakken mislukt")
+            .unwrap_or("packing failed")
             .trim()
             .to_string());
     }

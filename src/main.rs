@@ -47,9 +47,9 @@ enum Source {
 impl Source {
     fn title(self) -> &'static str {
         match self {
-            Source::Folders => " Mappen ",
-            Source::Repos => " Repo's ",
-            Source::Modified => " Onopgeslagen ",
+            Source::Folders => " Folders ",
+            Source::Repos => " Repos ",
+            Source::Modified => " Unsaved ",
         }
     }
 }
@@ -257,7 +257,7 @@ impl App {
                 .filter(|r| !r.changes.is_empty())
                 .map(|r| Node {
                     label: r.name.clone(),
-                    detail: format!("{} gewijzigd", r.changes.len()),
+                    detail: format!("{} changed", r.changes.len()),
                     path: r.path.clone(),
                     depth: 0,
                     expandable: false,
@@ -319,8 +319,8 @@ impl App {
                     })
                     .collect()
             }
-            // Mappen horen links, bestanden rechts: de boom is de enige plek
-            // waar een map staat, dus de rechterkolom toont er geen.
+            // Folders belong on the left: the tree is the only place one lives,
+            // so the right pane shows none.
             _ => {
                 let mut items: Vec<Entry> = fsmodel::read_dir(&path, self.show_hidden)
                     .into_iter()
@@ -366,9 +366,9 @@ impl App {
         self.scanned = true;
         let slow = self.repos.iter().filter(|r| r.unread).count();
         self.status = match slow {
-            0 => format!("{} repo's gevonden", self.repos.len()),
+            0 => format!("{} repositories", self.repos.len()),
             n => format!(
-                "{} repo's gevonden · {n} te traag om te lezen",
+                "{} repositories · {n} too slow to read",
                 self.repos.len()
             ),
         };
@@ -426,24 +426,24 @@ impl App {
             KeyCode::Char(' ') => self.toggle_selection(),
             KeyCode::Char('s') => {
                 self.sort = self.sort.next();
-                self.status = format!("gesorteerd op {}", self.sort.label());
+                self.status = format!("sorted by {}", self.sort.label());
                 self.rebuild_right();
             }
             KeyCode::Char('u') => {
                 self.reverse = !self.reverse;
                 self.status = if self.reverse {
-                    "omgekeerde volgorde".into()
+                    "reversed".into()
                 } else {
-                    "gewone volgorde".into()
+                    "normal order".into()
                 };
                 self.rebuild_right();
             }
             KeyCode::Char('.') => {
                 self.show_hidden = !self.show_hidden;
                 self.status = if self.show_hidden {
-                    "verborgen bestanden zichtbaar".into()
+                    "hidden files shown".into()
                 } else {
-                    "verborgen bestanden verborgen".into()
+                    "hidden files hidden".into()
                 };
                 self.rebuild_left();
                 self.rebuild_right();
@@ -461,16 +461,16 @@ impl App {
             }
             KeyCode::Char('v') => self.paste(),
             KeyCode::Char('r') => {
-                self.status = "verversen…".into();
+                self.status = "refreshing…".into();
                 self.pending = Some(Pending::Refresh);
             }
             KeyCode::Esc => {
                 if self.selection.is_empty() {
                     self.clipboard = None;
-                    self.status = "klembord leeg".into();
+                    self.status = "clipboard cleared".into();
                 } else {
                     self.selection.clear();
-                    self.status = "selectie gewist".into();
+                    self.status = "selection cleared".into();
                 }
             }
             _ => {}
@@ -503,7 +503,7 @@ impl App {
             KeyCode::Char('s') | KeyCode::Char('S') => Resolution::Skip,
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.modal = None;
-                self.status = "afgebroken".into();
+                self.status = "cancelled".into();
                 return;
             }
             _ => return,
@@ -563,7 +563,7 @@ impl App {
     /// Opens the file under the cursor, in a box, without leaving the tool.
     fn look(&mut self) {
         let Some(item) = self.items.get(self.right_cursor) else {
-            self.status = "niets om in te kijken".into();
+            self.status = "nothing to look into".into();
             return;
         };
         let (path, name, dataless, size) = (
@@ -628,7 +628,7 @@ impl App {
         };
 
         let (lines, raw) = if markdown && !plain.is_empty() {
-            note = Some("opgemaakt · t toont de bron".to_string());
+            note = Some("rendered · t shows the source".to_string());
             (markdown::render(&plain), Some(as_styled(plain)))
         } else {
             (as_styled(plain), formatted_raw.map(as_styled))
@@ -661,8 +661,8 @@ impl App {
                     offset: 0,
                 }));
             }
-            Ok(_) => self.status = "het archief is leeg".into(),
-            Err(e) => self.status = format!("archief: {e}"),
+            Ok(_) => self.status = "the archive is empty".into(),
+            Err(e) => self.status = format!("archive: {e}"),
         }
     }
 
@@ -751,8 +751,8 @@ impl App {
         };
         let (archive_path, name) = (inside.path.clone(), member.name.clone());
         self.status = match archive::extract(&archive_path, &name, &dest) {
-            Ok(()) => format!("{name} uitgepakt in {}", shorten(&dest)),
-            Err(e) => format!("uitpakken mislukt: {e}"),
+            Ok(()) => format!("{name} extracted into {}", shorten(&dest)),
+            Err(e) => format!("extracting failed: {e}"),
         };
         self.modal = None;
         self.rebuild_right();
@@ -764,12 +764,12 @@ impl App {
                 let Some(Modal::Fetch(ask)) = self.modal.take() else {
                     return;
                 };
-                self.status = format!("{} ophalen…", ask.name);
+                self.status = format!("fetching {}…", ask.name);
                 self.pending = Some(Pending::Fetch(ask));
             }
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.modal = None;
-                self.status = "niets opgehaald".into();
+                self.status = "nothing fetched".into();
             }
             _ => {}
         }
@@ -781,12 +781,12 @@ impl App {
                 let Some(Modal::Delete(ask)) = self.modal.take() else {
                     return;
                 };
-                self.status = "verwijderen…".into();
+                self.status = "deleting…".into();
                 self.pending = Some(Pending::Trash(ask.items));
             }
             KeyCode::Esc | KeyCode::Char('q') => {
                 self.modal = None;
-                self.status = "niets verwijderd".into();
+                self.status = "nothing deleted".into();
             }
             _ => {}
         }
@@ -799,7 +799,7 @@ impl App {
         self.right_cursor = 0;
         self.right_offset = 0;
         if source != Source::Folders && !self.scanned {
-            self.status = "repo's zoeken…".into();
+            self.status = "finding repositories…".into();
             self.pending = Some(Pending::ScanRepos);
             return;
         }
@@ -910,8 +910,8 @@ impl App {
                 return;
             }
             self.status = match ops::open(&path) {
-                Ok(()) => format!("geopend: {name}"),
-                Err(e) => format!("openen mislukt: {e}"),
+                Ok(()) => format!("opened: {name}"),
+                Err(e) => format!("could not open: {e}"),
             };
             return;
         }
@@ -955,7 +955,7 @@ impl App {
         self.right_cursor = 0;
         self.right_offset = 0;
         self.focus = Focus::Left;
-        self.status = format!("wortel: {}", shorten(&path));
+        self.status = format!("root: {}", shorten(&path));
         self.rebuild_left();
         self.rebuild_right();
     }
@@ -964,7 +964,7 @@ impl App {
     /// cursor so you can see where you came from.
     fn root_up(&mut self) {
         let Some(parent) = self.root.parent().map(|p| p.to_path_buf()) else {
-            self.status = "hier houdt het op".into();
+            self.status = "this is as far up as it goes".into();
             return;
         };
         let previous = self.root.clone();
@@ -977,7 +977,7 @@ impl App {
             self.left_cursor = i;
         }
         self.focus = Focus::Left;
-        self.status = format!("wortel: {}", shorten(&parent));
+        self.status = format!("root: {}", shorten(&parent));
         self.rebuild_right();
     }
 
@@ -1017,12 +1017,12 @@ impl App {
     fn yank(&mut self, mode: Mode) {
         let items = self.targets();
         if items.is_empty() {
-            self.status = "niets om te nemen".into();
+            self.status = "nothing to take".into();
             return;
         }
         let verb = match mode {
-            Mode::Copy => "kopiëren",
-            Mode::Cut => "verplaatsen",
+            Mode::Copy => "copy",
+            Mode::Cut => "move",
         };
         self.status = if self.focus == Focus::Left {
             let name = items
@@ -1030,9 +1030,9 @@ impl App {
                 .and_then(|p| p.file_name())
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
-            format!("map {name} klaar om te {verb}")
+            format!("folder {name} ready to {verb}")
         } else {
-            format!("{} bestand(en) klaar om te {verb}", items.len())
+            format!("{} file(s) ready to {verb}", items.len())
         };
         self.clipboard = Some(Clipboard { items, mode });
     }
@@ -1041,13 +1041,13 @@ impl App {
     fn delete(&mut self) {
         let items = self.targets();
         if items.is_empty() {
-            self.status = "niets om te verwijderen".into();
+            self.status = "nothing to delete".into();
             return;
         }
         // Refuse to delete the ground you are standing on: the tree would be
         // rooted at something that no longer exists.
         if items.iter().any(|p| *p == self.root) {
-            self.status = "de wortel van de boom kan hier niet weg".into();
+            self.status = "the root of the tree cannot go from here".into();
             return;
         }
         let mut folders = 0;
@@ -1143,7 +1143,7 @@ impl App {
                 self.modal = None;
                 // The clipboard stays filled: you can always walk there
                 // yourself and press v.
-                self.status = "kies een map en druk v".into();
+                self.status = "pick a folder and press v".into();
             }
             _ => {}
         }
@@ -1153,7 +1153,7 @@ impl App {
     fn compress(&mut self) {
         let items = self.targets();
         if items.is_empty() {
-            self.status = "niets om in te pakken".into();
+            self.status = "nothing to pack".into();
             return;
         }
         let Some(mut dest) = self.current_path() else {
@@ -1166,7 +1166,7 @@ impl App {
         {
             dest = parent.to_path_buf();
         }
-        self.status = format!("{} item(s) inpakken…", items.len());
+        self.status = format!("packing {} item(s)…", items.len());
         self.pending = Some(Pending::Compress { items, dest });
     }
 
@@ -1179,7 +1179,7 @@ impl App {
 
     fn paste_into(&mut self, dest: PathBuf) {
         let Some(clip) = self.clipboard.clone() else {
-            self.status = "klembord is leeg".into();
+            self.status = "the clipboard is empty".into();
             return;
         };
         let clashing = ops::conflicts(&clip.items, &dest).len();
@@ -1370,8 +1370,8 @@ fn node_rows(nodes: &[Node], room: usize) -> Vec<Row> {
     nodes
         .iter()
         .map(|node| {
-            // ▾ ▸ er valt iets uit te klappen · × écht leeg · · alleen
-            // verborgen inhoud · niets: bestanden, en die staan rechts.
+            // ▾ ▸ something unfolds · × truly empty · · hidden content only ·
+            // nothing: files, and those are on the right.
             let marker = if node.expandable {
                 if node.expanded { "▾ " } else { "▸ " }
             } else if node.empty {
@@ -1443,8 +1443,8 @@ fn right_rows(app: &App, width_cells: usize) -> Vec<Row> {
             match item.git.as_deref() {
                 Some(label) => {
                     let colour = match label {
-                        "ongetrackt" | "verwijderd" | "conflict" => Color::Red,
-                        "toegevoegd" => Color::Green,
+                        "untracked" | "deleted" | "conflict" => Color::Red,
+                        "added" => Color::Green,
                         _ => Color::Yellow,
                     };
                     segments.push((
@@ -1483,21 +1483,21 @@ fn right_rows(app: &App, width_cells: usize) -> Vec<Row> {
 
 fn status_line(app: &App, width_cells: usize) -> String {
     let mut left = format!(" {}", app.status);
-    let mut right = format!("sortering: {}", app.sort.label());
+    let mut right = format!("sort: {}", app.sort.label());
     if !app.selection.is_empty() {
-        right = format!("{} geselecteerd  ·  {right}", app.selection.len());
+        right = format!("{} selected  ·  {right}", app.selection.len());
     }
     if let Some(clip) = &app.clipboard {
         let verb = if clip.mode == Mode::Copy {
-            "kopie"
+            "copy"
         } else {
-            "verplaats"
+            "move"
         };
-        right = format!("klembord: {} ({verb})  ·  {right}", clip.items.len());
+        right = format!("clipboard: {} ({verb})  ·  {right}", clip.items.len());
     }
     // The whole signpost, since the bottom bar is gone. It yields the moment
     // the line needs the room for something it actually has to say.
-    let with_hint = format!("{right}  ·  ? hulp");
+    let with_hint = format!("{right}  ·  ? help");
     if width::str_width(&left) + width::str_width(&with_hint) + 2 <= width_cells {
         right = with_hint;
     }
@@ -1543,8 +1543,8 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
         .map(|p| shorten(&p))
         .unwrap_or_else(|| "—".to_string());
     let noun = match app.source {
-        Source::Modified => "wijziging(en)",
-        _ => "bestand(en)",
+        Source::Modified => "change(s)",
+        _ => "file(s)",
     };
     let title = format!(
         " {} — {} {noun} ",
@@ -1638,18 +1638,18 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
         let mut parts = Vec::new();
         if !look.picture {
             parts.push(format!(
-                "regel {} van {}",
+                "line {} of {}",
                 (look.offset + 1).min(look.lines.len()),
                 look.lines.len()
             ));
         }
         if look.column > 0 {
-            parts.push(format!("kolom {}", look.column + 1));
+            parts.push(format!("column {}", look.column + 1));
         }
         if let Some(note) = &look.note {
             parts.push(note.clone());
         }
-        parts.push("esc sluiten".to_string());
+        parts.push("esc close".to_string());
         parts.join("   ·   ")
     };
     while lines.len() + 1 < rows {
@@ -1673,24 +1673,24 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
     let rows: [(&str, &str); 18] = [
-        ("1 2 3", "mappen · repo's · onopgeslagen werk"),
-        ("Tab", "van kolom wisselen"),
-        ("j k ↑ ↓", "bewegen · J K met tien · PgUp/PgDn per scherm"),
-        ("g G", "naar het begin en het eind"),
-        ("l h → ←", "map uit- en dichtklappen, of van kolom wisselen"),
-        ("w W", "de map hier wordt de wortel · de wortel omhoog"),
-        ("Enter", "bestand openen"),
-        ("spatie", "bestand aan- of afvinken"),
-        ("c m v", "kopiëren · verplaatsen (kiest waarheen) · plakken"),
-        ("p", "in een bestand kijken · j k op en neer · d f zijwaarts"),
-        ("", "   in een zip: enter bekijkt, e pakt hier uit"),
-        ("", "   json/xml worden opgemaakt · t toont het origineel"),
-        ("z", "de selectie hier inpakken tot een zip"),
-        ("x", "naar de prullenbak, na een vraag"),
-        ("s u", "sorteren op naam/type/datum · omkeren"),
-        (".", "verborgen bestanden tonen"),
-        ("r", "verversen"),
-        ("q", "sluiten, waar je stond"),
+        ("1 2 3", "folders · repositories · unsaved work"),
+        ("Tab", "switch column"),
+        ("j k ↑ ↓", "move · J K by ten · PgUp/PgDn by screen"),
+        ("g G", "to the start and the end"),
+        ("l h → ←", "open and close a folder, or switch column"),
+        ("w W", "make this folder the root · lift the root"),
+        ("Enter", "open the file"),
+        ("space", "tick a file"),
+        ("c m v", "copy · move (asks where to) · paste"),
+        ("p", "look into a file · j k up and down · d f sideways"),
+        ("", "   in a zip: enter looks, e extracts here"),
+        ("", "   json/xml are formatted · t shows the original"),
+        ("z", "pack the selection into a zip, here"),
+        ("x", "to the trash, after a question"),
+        ("s u", "sort by name/type/date · reverse"),
+        (".", "show hidden files"),
+        ("r", "refresh"),
+        ("q", "close, where you stood"),
     ];
 
     let mut lines: Vec<term::Line> = rows
@@ -1707,12 +1707,12 @@ fn draw_help(frame: &mut term::Frame) {
         .collect();
     lines.push(term::Line::default());
     lines.push(term::Line::from(term::Span::styled(
-        "in de boom:  ▾ ▸ er zitten mappen in   × leeg   · verborgen inhoud",
+        "in the tree:  ▾ ▸ holds folders   × empty   · hidden content only",
         dim,
     )));
     lines.push(term::Line::default());
     lines.push(term::Line::from(term::Span::styled(
-        "esc sluiten",
+        "esc close",
         dim,
     )));
 
@@ -1727,7 +1727,7 @@ fn draw_help(frame: &mut term::Frame) {
     };
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
-        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" hulp ")),
+        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" help ")),
         box_area,
     );
 }
@@ -1750,7 +1750,7 @@ fn draw_destination(frame: &mut term::Frame, pick: &Destination, app: &App) {
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
         List::new(node_rows(&pick.nodes, inner))
-            .block(Block::bordered().title(format!(" Waarheen met {count} item(s)? ")))
+            .block(Block::bordered().title(format!(" Where to with {count} item(s)? ")))
             .cursor(pick.cursor)
             .offset(offset)
             .focused(true),
@@ -1765,7 +1765,7 @@ fn draw_destination(frame: &mut term::Frame, pick: &Destination, app: &App) {
     };
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
-            width::fit("v hierheen   ·   l h open en dicht   ·   esc zelf kiezen", inner),
+            width::fit("v to here   ·   l h open and close   ·   esc pick it yourself", inner),
             Style::new().fg(Color::DarkGray),
         ))),
         footer,
@@ -1833,7 +1833,7 @@ fn draw_inside(frame: &mut term::Frame, inside: &Inside) {
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
             width::fit(
-                "enter bekijken   ·   e hier uitpakken   ·   esc sluiten",
+                "enter look   ·   e extract here   ·   esc close",
                 inner,
             ),
             Style::new().fg(Color::DarkGray),
@@ -1850,19 +1850,19 @@ fn draw_fetch(frame: &mut term::Frame, ask: &FetchAsk) {
         )),
         term::Line::from(term::Span::styled(
             format!(
-                "staat in de cloud, niet op deze schijf ({})",
+                "in the cloud, not on this disk ({})",
                 fsmodel::human_size(ask.size, false)
             ),
             Style::new().fg(Color::Cyan),
         )),
         term::Line::from(term::Span::raw("")),
         term::Line::from(term::Span::raw(if ask.hand_over {
-            "[Enter] ophalen en openen      [Esc] laten staan"
+            "[Enter] fetch and open        [Esc] leave it"
         } else {
-            "[Enter] ophalen en bekijken    [Esc] laten staan"
+            "[Enter] fetch and look        [Esc] leave it"
         })),
         term::Line::from(term::Span::styled(
-            "Het scherm staat stil zolang het binnenkomt.",
+            "The screen stands still while it comes in.",
             Style::new().fg(Color::DarkGray),
         )),
     ];
@@ -1877,7 +1877,7 @@ fn draw_fetch(frame: &mut term::Frame, ask: &FetchAsk) {
     };
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
-        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" Uit de cloud ")),
+        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" From the cloud ")),
         box_area,
     );
 }
@@ -1896,10 +1896,10 @@ fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
 
     let mut lines = vec![term::Line::from(term::Span::styled(
         match (ask.items.len(), ask.folders) {
-            (1, 1) => "Deze map naar de prullenbak".to_string(),
-            (1, _) => "Dit bestand naar de prullenbak".to_string(),
-            (n, 0) => format!("{n} bestanden naar de prullenbak"),
-            (n, f) => format!("{n} items naar de prullenbak, waarvan {f} map(pen)"),
+            (1, 1) => "This folder to the trash".to_string(),
+            (1, _) => "This file to the trash".to_string(),
+            (n, 0) => format!("{n} files to the trash"),
+            (n, f) => format!("{n} items to the trash, {f} of them folder(s)"),
         },
         Style::new().add_modifier(Modifier::BOLD),
     ))];
@@ -1911,24 +1911,24 @@ fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
     }
     if ask.items.len() > names.len() {
         lines.push(term::Line::from(term::Span::styled(
-            format!("  … en nog {}", ask.items.len() - names.len()),
+            format!("  … and {} more", ask.items.len() - names.len()),
             Style::new().fg(Color::DarkGray),
         )));
     }
     // The one thing the screen could not have told you by itself.
     for name in &ask.concealing {
         lines.push(term::Line::from(term::Span::styled(
-            format!("⚠ {name} bevat verborgen inhoud die mee weggaat"),
+            format!("⚠ {name} holds hidden content that goes along"),
             Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         )));
     }
     lines.push(term::Line::from(term::Span::raw("")));
     lines.push(term::Line::from(term::Span::styled(
-        "[x] Verwijderen      [Esc] Annuleren",
+        "[x] Delete           [Esc] Cancel",
         Style::new().fg(Color::Red).add_modifier(Modifier::BOLD),
     )));
     lines.push(term::Line::from(term::Span::styled(
-        "Terug te halen uit de prullenbak.",
+        "Recoverable from the trash.",
         Style::new().fg(Color::DarkGray),
     )));
 
@@ -1944,7 +1944,7 @@ fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
         term::Paragraph::new(term::Text::from(lines))
-            .block(Block::bordered().title(" Verwijderen ")),
+            .block(Block::bordered().title(" Delete ")),
         box_area,
     );
 }
@@ -1962,38 +1962,38 @@ fn draw_conflict(frame: &mut term::Frame, conflict: &Conflict, app: &App) {
     frame.render_widget(term::Clear, box_area);
 
     let verb = match app.clipboard.as_ref().map(|c| c.mode) {
-        Some(Mode::Cut) => "Verplaatsen",
-        _ => "Kopiëren",
+        Some(Mode::Cut) => "Moving",
+        _ => "Copying",
     };
     let lines = vec![
         term::Line::from(term::Span::raw(format!(
-            "{verb} naar {}",
+            "{verb} to {}",
             shorten(&conflict.dest)
         ))),
         term::Line::from(term::Span::styled(
             format!(
-                "{} item(s) · {} bestaan al",
+                "{} item(s) · {} already exist",
                 conflict.total, conflict.clashing
             ),
             Style::new().fg(Color::Yellow),
         )),
         term::Line::from(term::Span::raw("")),
         term::Line::from(term::Span::styled(
-            "[B] Beide bewaren  — aankomst wordt naam-2",
+            "[B] Keep both      — the arrival becomes name-2",
             Style::new().fg(Color::Green),
         )),
         term::Line::from(term::Span::raw(
-            "[O] Overschrijven  — mappen worden samengevoegd",
+            "[O] Overwrite      — folders are merged",
         )),
-        term::Line::from(term::Span::raw("[S] Overslaan      — laat de botsers staan")),
+        term::Line::from(term::Span::raw("[S] Skip           — leaves the clashing ones")),
         term::Line::from(term::Span::styled(
-            "[Esc] Afbreken",
+            "[Esc] Cancel",
             Style::new().fg(Color::DarkGray),
         )),
     ];
     frame.render_widget(
         term::Paragraph::new(term::Text::from(lines))
-            .block(Block::bordered().title(" Naamconflict ")),
+            .block(Block::bordered().title(" Name clash ")),
         box_area,
     );
 }
@@ -2019,8 +2019,8 @@ fn stdout_is_terminal() -> bool {
 fn main() -> std::io::Result<()> {
     if !stdout_is_terminal() {
         eprintln!(
-            "fsctl heeft een terminal nodig — de uitvoer gaat nu ergens anders heen.\n\
-             Start hem rechtstreeks in een terminalvenster, zonder pipe of omleiding."
+            "fsctl needs a terminal — its output is going somewhere else.\n\
+             Start it in a terminal window, without a pipe or a redirect."
         );
         std::process::exit(2);
     }
@@ -2048,7 +2048,7 @@ fn main() -> std::io::Result<()> {
                 }
                 Pending::Trash(items) => {
                     let outcome = ops::trash(&items);
-                    app.status = outcome.summary_of("naar de prullenbak");
+                    app.status = outcome.summary_of("moved to the trash");
                     app.selection.clear();
                     app.rebuild_left();
                     app.rebuild_right();
@@ -2056,8 +2056,8 @@ fn main() -> std::io::Result<()> {
                 Pending::Fetch(ask) => {
                     if ask.hand_over {
                         app.status = match ops::open(&ask.path) {
-                            Ok(()) => format!("geopend: {}", ask.name),
-                            Err(e) => format!("openen mislukt: {e}"),
+                            Ok(()) => format!("opened: {}", ask.name),
+                            Err(e) => format!("could not open: {e}"),
                         };
                     } else {
                         app.preview_of(ask.path.clone(), ask.name.clone());
@@ -2072,9 +2072,9 @@ fn main() -> std::io::Result<()> {
                                 .file_name()
                                 .map(|n| n.to_string_lossy().to_string())
                                 .unwrap_or_default();
-                            format!("{name} gemaakt uit {count} item(s)")
+                            format!("{name} made from {count} item(s)")
                         }
-                        Err(e) => format!("inpakken mislukt: {e}"),
+                        Err(e) => format!("packing failed: {e}"),
                     };
                     app.selection.clear();
                     app.rebuild_right();
@@ -2083,7 +2083,7 @@ fn main() -> std::io::Result<()> {
                     git::refresh(&mut app.repos);
                     app.rebuild_left();
                     app.rebuild_right();
-                    app.status = "ververst".into();
+                    app.status = "refreshed".into();
                 }
             }
             continue;

@@ -89,7 +89,7 @@ pub fn render(lines: &[String]) -> Vec<Styled> {
     out
 }
 
-/// `## Kop` → `Kop`, up to six hashes and only with a space behind them.
+/// `## Heading` → `Heading`, up to six hashes and only with a space behind them.
 fn heading(trimmed: &str) -> Option<&str> {
     let hashes = trimmed.chars().take_while(|c| *c == '#').count();
     if hashes == 0 || hashes > 6 {
@@ -98,8 +98,8 @@ fn heading(trimmed: &str) -> Option<&str> {
     trimmed[hashes..].strip_prefix(' ').map(|rest| rest.trim_end())
 }
 
-/// The markers inside a line: `**strong**`, `_nadruk_`, `` `code` `` and
-/// `[tekst](url)`. Everything else is left exactly as it was typed — this is a
+/// The markers inside a line: `**strong**`, `_emphasis_`, `` `code` `` and
+/// `[text](url)`. Everything else is left exactly as it was typed — this is a
 /// preview, not an editor, and a half-understood construct should still read.
 fn inline(text: &str, base: Style) -> Styled {
     let chars: Vec<char> = text.chars().collect();
@@ -168,7 +168,7 @@ fn between(text: &str, marker: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// `[tekst](url)` → the two halves.
+/// `[text](url)` → the two halves.
 fn link(text: &str) -> Option<(String, String)> {
     let rest = text.strip_prefix('[')?;
     let close = rest.find("](")?;
@@ -191,20 +191,20 @@ mod tests {
 
     #[test]
     fn headings_lose_their_hashes() {
-        assert_eq!(heading("## Kop"), Some("Kop"));
-        assert_eq!(heading("#geen kop"), None);
-        assert_eq!(heading("####### te diep"), None);
+        assert_eq!(heading("## Heading"), Some("Heading"));
+        assert_eq!(heading("#not a heading"), None);
+        assert_eq!(heading("####### too deep"), None);
     }
 
     #[test]
     fn markers_disappear_but_the_words_stay() {
-        assert_eq!(text(&inline("een **sterk** woord", plain())), "een sterk woord");
-        assert_eq!(text(&inline("met `code` erin", plain())), "met code erin");
+        assert_eq!(text(&inline("a **strong** word", plain())), "a strong word");
+        assert_eq!(text(&inline("with `code` in it", plain())), "with code in it");
     }
 
     #[test]
     fn snake_case_is_not_emphasis() {
-        let line = "een pack_id blijft heel";
+        let line = "a pack_id stays whole";
         assert_eq!(text(&inline(line, plain())), line);
     }
 
@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn every_source_line_stays_one_line() {
-        let source: Vec<String> = ["# Kop", "", "- punt", "```", "code", "```", "> quote"]
+        let source: Vec<String> = ["# Heading", "", "- point", "```", "code", "```", "> quote"]
             .iter()
             .map(|s| s.to_string())
             .collect();

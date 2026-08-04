@@ -28,7 +28,7 @@ impl Entry {
             return "link".to_string();
         }
         if self.is_dir {
-            return "map".to_string();
+            return "dir".to_string();
         }
         match self.path.extension().and_then(|e| e.to_str()) {
             Some(ext) if !ext.is_empty() => ext.to_lowercase(),
@@ -211,9 +211,9 @@ impl Sort {
 
     pub fn label(self) -> &'static str {
         match self {
-            Sort::Name => "naam",
+            Sort::Name => "name",
             Sort::Kind => "type",
-            Sort::Date => "datum",
+            Sort::Date => "date",
         }
     }
 }

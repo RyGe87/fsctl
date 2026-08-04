@@ -85,7 +85,7 @@ fn format_with(mut command: Command, limit: Duration) -> Result<String, String> 
         if std::time::Instant::now() >= deadline {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("duurde te lang".to_string());
+            return Err("took too long".to_string());
         }
         std::thread::sleep(Duration::from_millis(10));
     }
@@ -100,25 +100,25 @@ fn format_with(mut command: Command, limit: Duration) -> Result<String, String> 
         .next()
         .map(|line| line.rsplit(": ").next().unwrap_or(line).trim().to_string())
         .filter(|line| !line.is_empty())
-        .unwrap_or_else(|| "kon niet worden opgemaakt".to_string()))
+        .unwrap_or_else(|| "could not be formatted".to_string()))
 }
 
 pub fn read(path: &Path) -> Preview {
     let meta = match std::fs::symlink_metadata(path) {
         Ok(meta) => meta,
-        Err(e) => return Preview::NotText(format!("niet te lezen — {e}")),
+        Err(e) => return Preview::NotText(format!("cannot read — {e}")),
     };
     if meta.is_dir() {
-        return Preview::NotText("dit is een map".to_string());
+        return Preview::NotText("this is a folder".to_string());
     }
 
     let mut buffer = Vec::new();
     match std::fs::File::open(path).and_then(|f| f.take(LIMIT as u64).read_to_end(&mut buffer)) {
         Ok(_) => {}
-        Err(e) => return Preview::NotText(format!("niet te lezen — {e}")),
+        Err(e) => return Preview::NotText(format!("cannot read — {e}")),
     }
     if buffer.is_empty() {
-        return Preview::NotText("leeg bestand".to_string());
+        return Preview::NotText("empty file".to_string());
     }
 
     let size_ok = meta.len() <= FORMAT_LIMIT;
@@ -127,7 +127,7 @@ pub fn read(path: &Path) -> Preview {
     // plutil has turned it back into XML.
     if buffer.starts_with(b"bplist00") {
         if !size_ok {
-            return Preview::NotText("binaire plist, te groot om om te zetten".to_string());
+            return Preview::NotText("binary plist, too large to convert".to_string());
         }
         let mut c = Command::new("/usr/bin/plutil");
         c.args(["-convert", "xml1", "-o", "-", "--"]).arg(path);
@@ -135,16 +135,16 @@ pub fn read(path: &Path) -> Preview {
             Ok(text) => Preview::Text {
                 lines: split(&text),
                 raw: None,
-                note: Some("binaire plist, omgezet door plutil".to_string()),
+                note: Some("binary plist, turned back into XML by plutil".to_string()),
             },
-            Err(e) => Preview::NotText(format!("binaire plist — {e}")),
+            Err(e) => Preview::NotText(format!("binary plist — {e}")),
         };
     }
 
     // A zero byte is the oldest and most reliable sign that this is not text.
     if buffer.contains(&0) {
         return Preview::NotText(format!(
-            "geen tekstbestand ({})",
+            "not a text file ({})",
             crate::fsmodel::human_size(meta.len(), false)
         ));
     }
@@ -158,7 +158,7 @@ pub fn read(path: &Path) -> Preview {
         }
         Err(_) => {
             return Preview::NotText(format!(
-                "geen leesbare tekst ({})",
+                "not readable text ({})",
                 crate::fsmodel::human_size(meta.len(), false)
             ));
         }
@@ -174,7 +174,7 @@ pub fn read(path: &Path) -> Preview {
                 return Preview::Text {
                     lines: split(&formatted),
                     raw: Some(raw),
-                    note: Some(format!("opgemaakt door {tool} · t toont het origineel")),
+                    note: Some(format!("formatted by {tool} · t shows the original")),
                 };
             }
             // The refusal is the news: this file does not parse.
@@ -191,7 +191,7 @@ pub fn read(path: &Path) -> Preview {
     Preview::Text {
         lines: raw,
         raw: None,
-        note: clipped.then(|| "… alleen het begin van het bestand".to_string()),
+        note: clipped.then(|| "… only the start of the file".to_string()),
     }
 }
 
@@ -200,11 +200,11 @@ pub fn read(path: &Path) -> Preview {
 /// a path, and a temporary file is exactly what this avoids.
 pub fn from_bytes(bytes: &[u8], full_size: u64) -> Preview {
     if bytes.is_empty() {
-        return Preview::NotText("leeg".to_string());
+        return Preview::NotText("empty".to_string());
     }
     if bytes.contains(&0) {
         return Preview::NotText(format!(
-            "geen tekstbestand ({})",
+            "not a text file ({})",
             crate::fsmodel::human_size(full_size, false)
         ));
     }
@@ -214,12 +214,12 @@ pub fn from_bytes(bytes: &[u8], full_size: u64) -> Preview {
         Err(e) if e.valid_up_to() > 0 => {
             String::from_utf8_lossy(&head[..e.valid_up_to()]).to_string()
         }
-        Err(_) => return Preview::NotText("geen leesbare tekst".to_string()),
+        Err(_) => return Preview::NotText("not readable text".to_string()),
     };
     Preview::Text {
         lines: split(&text),
         raw: None,
-        note: (bytes.len() > LIMIT).then(|| "… alleen het begin".to_string()),
+        note: (bytes.len() > LIMIT).then(|| "… only the start".to_string()),
     }
 }
 

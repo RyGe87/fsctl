@@ -59,14 +59,14 @@ fn run(mut command: Command) -> Result<Vec<u8>, String> {
     Err(String::from_utf8_lossy(&out.stderr)
         .lines()
         .next()
-        .unwrap_or("kon het archief niet lezen")
+        .unwrap_or("could not read the archive")
         .trim()
         .to_string())
 }
 
 /// What is in there, without taking any of it out.
 pub fn list(path: &Path) -> Result<Vec<Member>, String> {
-    match kind(path).ok_or("geen archief")? {
+    match kind(path).ok_or("not an archive")? {
         Kind::Zip => {
             let mut c = Command::new("/usr/bin/unzip");
             c.arg("-l").arg(path);
@@ -155,7 +155,7 @@ fn parse_tar(text: &str) -> Vec<Member> {
 
 /// One member's bytes, straight from the archive.
 pub fn read_member(path: &Path, member: &str) -> Result<Vec<u8>, String> {
-    match kind(path).ok_or("geen archief")? {
+    match kind(path).ok_or("not an archive")? {
         Kind::Zip => {
             let mut c = Command::new("/usr/bin/unzip");
             c.arg("-p").arg(path).arg(member);
@@ -172,7 +172,7 @@ pub fn read_member(path: &Path, member: &str) -> Result<Vec<u8>, String> {
 /// Takes one member out, into a folder of your choosing. The inner path is
 /// kept, so an archive cannot scatter its contents across your directory.
 pub fn extract(path: &Path, member: &str, into: &Path) -> Result<(), String> {
-    let command = match kind(path).ok_or("geen archief")? {
+    let command = match kind(path).ok_or("not an archive")? {
         Kind::Zip => {
             let mut c = Command::new("/usr/bin/unzip");
             // -n: an existing file is never overwritten by an archive.
@@ -204,13 +204,13 @@ mod tests {
     fn unzip_listings_survive_spaces_in_names() {
         let text = "Archive:  x.zip\n  Length      Date    Time    Name\n\
                     ---------  ---------- -----   ----\n\
-                    \x2017  08-04-2026 21:05   map/mijn bestand.txt\n\
+                    \x2017  08-04-2026 21:05   dir/my file.txt\n\
                     \x20 0  08-04-2026 21:05   map/\n\
                     ---------                     -------\n\
                     \x2017                     2 files\n";
         let members = parse_unzip(text);
         assert_eq!(members.len(), 2);
-        assert_eq!(members[0].name, "map/mijn bestand.txt");
+        assert_eq!(members[0].name, "dir/my file.txt");
         assert_eq!(members[0].size, 17);
         assert!(members[1].is_dir);
     }

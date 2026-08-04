@@ -60,14 +60,14 @@ impl Change {
     /// The word behind the code, for people who do not read porcelain.
     pub fn label(&self) -> &'static str {
         match self.code.trim() {
-            "M" | "MM" | "AM" => "gewijzigd",
-            "??" => "ongetrackt",
-            "A" => "toegevoegd",
-            "D" => "verwijderd",
-            "R" => "hernoemd",
-            "C" => "gekopieerd",
+            "M" | "MM" | "AM" => "modified",
+            "??" => "untracked",
+            "A" => "added",
+            "D" => "deleted",
+            "R" => "renamed",
+            "C" => "copied",
             "U" | "UU" | "AA" | "DD" => "conflict",
-            _ => "gewijzigd",
+            _ => "modified",
         }
     }
 }
@@ -91,7 +91,7 @@ pub struct Repo {
 impl Repo {
     pub fn summary(&self) -> String {
         if self.unread {
-            return "te traag — niet gelezen".to_string();
+            return "too slow — not read".to_string();
         }
         let mut parts = vec![self.branch.clone()];
         if !self.changes.is_empty() {
@@ -223,7 +223,7 @@ fn leaf(path: &Path) -> String {
 /// detached `HEAD (no branch)`.
 fn branch_of(header: &str) -> String {
     if header.starts_with("HEAD (no branch)") {
-        return "losse HEAD".to_string();
+        return "detached HEAD".to_string();
     }
     let body = header
         .strip_prefix("No commits yet on ")
@@ -271,7 +271,7 @@ mod tests {
         );
         // A repository that has never been committed to.
         assert_eq!(branch_of("No commits yet on main"), "main");
-        assert_eq!(branch_of("HEAD (no branch)"), "losse HEAD");
+        assert_eq!(branch_of("HEAD (no branch)"), "detached HEAD");
     }
 
     #[test]

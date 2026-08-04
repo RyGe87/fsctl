@@ -1,137 +1,134 @@
-# fsctl — ontwerp
+# fsctl — design
 
-*Werknaam. Zero-dependency TUI-bestandsbeheerder in de lijn van sshctl.*
-Vastgelegd 2026-08-04 na de ontwerpsessie.
+*A zero-dependency TUI file manager in the line of sshctl.*
+Written down 2026-08-04, after the design session; kept current as it was built.
 
-## Waarom
+## Why
 
-Finder vervangen als dagelijkse bestandsbeheerder, om twee redenen: hij schrijft
-overal `.DS_Store` (macOS 26.6 kent maar één schakelaar, `DSDontWriteNetworkStores`
-— empirisch geverifieerd in de dyld shared cache; `DSDontWriteUSBStores` en
-`DSDontWriteStores` bestaan niet), en hij kent maar één perspectief: de mappenboom.
+To replace Finder as the everyday file manager, for two reasons: it writes
+`.DS_Store` everywhere (macOS 26.6 has exactly one switch for that,
+`DSDontWriteNetworkStores` — verified in the dyld shared cache;
+`DSDontWriteUSBStores` and `DSDontWriteStores` do not exist), and it knows only
+one perspective: the folder tree.
 
 ## Doctrine
 
-1. **Nul dependencies.** Zoals sshctl. Geen ratatui, geen crossterm, geen libc-crate.
-2. **De instantie die het weet, doet het werk.** sshctl vraagt `ssh -G` in plaats van
-   tekst te vergelijken. Hier: `cp`/`mv` verplaatsen bytes, `git` kent de repo-staat,
-   `plutil`/`xattr` lezen metadata. Wij orkestreren, wij herimplementeren niet.
-3. **Geen handmatige metadata.** Taggen met de hand werkt niet in de praktijk.
-   Alles wat we tonen is afgeleid — of het bestaat niet.
-4. **De index is een cache, nooit de waarheid.** Weggooien mag altijd; herbouwen
-   is seconden werk.
+1. **Zero dependencies.** As in sshctl. No ratatui, no crossterm, no libc crate.
+2. **Whoever knows, does the work.** sshctl asks `ssh -G` instead of comparing
+   text. Here: `cp`/`mv` move bytes, `git` knows repository state,
+   `plutil`/`xmllint`/`sips`/`unzip` read what they already understand. We
+   orchestrate; we do not reimplement.
+3. **No manual metadata.** Tagging by hand does not survive contact with daily
+   use. Everything shown is derived — or it does not exist.
+4. **The index is a cache, never the truth.** Throwing it away is always
+   allowed; rebuilding is seconds.
 
-## Hergebruik uit sshctl
+## Reused from sshctl
 
-`publish/src/bin/sshctl-tui/term.rs` (1.247 regels) is een zero-dep terminal-laag met
-een ratatui-vormige API: `Color` `Style` `Span` `Line` `Text` `Rect` `Constraint`
-`Layout` `Block` `Paragraph` `Tabs` `Clear` `Frame` `DefaultTerminal` `Event` `KeyCode`.
-Raw mode via een `stty`-subprocess — geen FFI, geen `unsafe`.
+`term.rs` (1,247 lines when it arrived) is a zero-dependency terminal layer with
+a ratatui-shaped API: `Color` `Style` `Span` `Line` `Text` `Rect` `Constraint`
+`Layout` `Block` `Paragraph` `Tabs` `Clear` `Frame` `DefaultTerminal` `Event`
+`KeyCode`. Raw mode goes through an `stty` subprocess — no FFI, no `unsafe`.
 
-**Kopiëren, niet uitfactoren** naar een gedeelde crate: twee onafhankelijke tools
-blijven twee onafhankelijke tools. Verbeteringen vloeien met de hand terug.
+**Copied, not factored out** into a shared crate: two independent tools stay two
+independent tools. Improvements travel back by hand.
 
-Twee aanvullingen nodig:
+Four things were added here, all forced by what file names are like:
 
-- **Lijst-widget** met cursor, selectie en scroll (~150 regels). Dient zowel de boom
-  links als de lijst rechts.
-- **Tekenbreedte** (~80 regels). `term.rs` rekent één kolom per teken (regel 351).
-  Klopt voor hostnamen, niet voor bestandsnamen met emoji of CJK.
+- **A list widget** with cursor, ticks and scrolling (~150 lines). It serves the
+  tree, the file pane, the archive listing and the destination picker.
+- **Character width** (~140 lines). `term.rs` counted one column per character,
+  which holds for host names and not for file names.
+- **A combining mark per cell.** macOS stores names decomposed, so `café`
+  arrives as five characters and the accent has to ride along in the same cell
+  or the row shifts.
+- **256-colour slots** (`Color::Indexed`), for the image thumbnails.
 
-## Scherm
+## The screen
 
 ```
-┌─ bronnen ────────┬─ items ─────────────────────────┐
-│ 📁 Mappen        │ ▣ naam            type    datum │
-│ 📦 Repo's        │ ▢ …                             │
-│ 🔥 Onopgeslagen  │                                 │
+┌─ sources ────────┬─ items ─────────────────────────┐
+│ Folders          │ ▣ name            type    date  │
+│ Repos            │ ▢ …                             │
+│ Unsaved          │                                 │
 └──────────────────┴─────────────────────────────────┘
 ```
 
-Links een **bron** (een boom), rechts altijd "de items van de geselecteerde knoop".
-Eén weergavepad, meerdere bronnen. Sorteren op naam, type of wijzigingsdatum;
-mappen eerst. Selecteren met spatie, getoond als ▣/▢.
+A **source** on the left (a tree), on the right always "the items of the
+selected node". One drawing path, several sources. Sorting by name, type or
+date; folders live only in the tree. Ticking with space, drawn as ▣/▢.
 
-## Systeemdelegatie (empirisch geverifieerd, macOS 26.6)
+## Delegated to the system (measured on macOS 26.6)
 
-| handeling | commando | bewezen |
+| action | command | proven |
 |---|---|---|
-| kopiëren | `/bin/cp -Rc` → terugval `-R` | xattrs, symlinks én rechten blijven; `-c` = APFS-kloon (instant, geen extra ruimte) |
-| verplaatsen | `/bin/mv` | regelt de volumegrens zelf; geen EXDEV-code nodig |
-| repo-staat | `git status --porcelain --ignored`, `git ls-files` | 0,095 s per repo; **per repo, nooit per bestand** |
-| cache geldig? | `stat` op `.git/index` + `.git/HEAD` | onveranderd = git niet draaien |
-| voortgang (later) | `ditto -V` | schrijft per bestand een regel, live mee te lezen |
-| prullenbak (later) | `osascript` → Finder | levert "Zet terug" gratis |
+| copy | `/bin/cp -Rc` → fallback `-R` | keeps xattrs, symlinks and permissions; `-c` is an APFS clone (instant, no extra disk) |
+| move | `/bin/mv` | handles the volume boundary itself; no EXDEV code needed |
+| repository state | `git status --porcelain --branch` | 0.095 s per repository — **per repository, never per file** |
+| cache valid? | `stat` on `.git/index` + `.git/HEAD` | unchanged means do not run git |
+| formatting | `plutil`, `xmllint` | both ship with macOS; plutil names the line and column of a broken JSON |
+| images | `sips` → small BMP | reads everything Apple reads; a BMP is a header and then pixels |
+| archives | `unzip -l`, `unzip -p`, `tar` | listing and streaming a single member, with no temporary file |
+| trash | `osascript` → Finder | put-back is recorded by whoever moves the file |
+| cloud flags | `stat -f %Sf` | `dataless` is not visible through Rust's std |
 
-Absolute paden gebruiken (`/bin/cp`, niet `cp`). Rust' `Command` geeft argumenten
-zonder shell door — bestandsnamen met spaties of newlines zijn geen risico.
+Absolute paths (`/bin/cp`, not `cp`). Rust's `Command` passes arguments without
+a shell, so names with spaces, quotes or newlines carry no risk.
 
-**Valstrik:** `ditto src dst` kopieert de *inhoud* van `src` naar `dst`, niet de map
-zelf. `cp -R` doet dat wel. Bij gebruik van ditto zelf `dst/naam` samenstellen.
+**Trap:** `ditto src dst` copies the *contents* of `src` into `dst`, not the
+folder itself. `cp -R` does include it.
 
-**Conflicten:** geen enkele systeemtool kan "vragen bij conflict"; `cp -n` slaat stil
-over en geeft tóch exitcode 0. Bestaan dus zelf controleren vóór de aanroep, keuze
-aan de gebruiker, dan pas het juiste commando. De beslissing is UI, het verplaatsen
-is systeemwerk.
+**Clashes:** no system tool can "ask on conflict"; `cp -n` skips silently and
+still exits 0. So existence is checked before the call, the choice is put to the
+user, and only then the right command runs. The decision is UI; moving bytes is
+system work.
 
-## Metadata: alles afgeleid
+## Metadata: all derived
 
-Leveranciers van feiten, elk met hun eigen kolommen:
+Providers of facts, each contributing columns:
 
-- **git** — repo, tak, getrackt?, gewijzigd?, genegeerd?, laatste commit
-- **bestandssysteem** — naam, type, grootte, mtime, rechten
-- **macOS** — `kMDItemWhereFroms` (bron-URL van downloads), `kMDItemDownloadedDate`,
-  `com.apple.lastuseddate#PS` (laatst geopend). Automatisch geschreven door het
-  systeem; niemand hoeft iets te taggen.
+- **git** — repository, branch, tracked?, changed?, ignored?, last commit
+- **filesystem** — name, type, size, mtime, permissions
+- **macOS** — `dataless` (in the cloud, not here), and available but unused:
+  `kMDItemWhereFroms`, `kMDItemDownloadedDate`, `com.apple.lastuseddate#PS`
 
-Handmatige velden (Finder-tags via `com.apple.metadata:_kMDItemUserTags`,
-Finder-opmerking via `kMDItemFinderComment`) zijn technisch bewezen werkend via
-`plutil` + `xattr` + `xxd`, en overleven `cp` en `mv` — maar worden **niet gebouwd**.
-In heel `~/Development` (465.061 bestanden) staat vandaag geen enkele tag.
+Manual fields (Finder tags via `com.apple.metadata:_kMDItemUserTags`, the Finder
+comment via `kMDItemFinderComment`) were proven to work through `plutil` +
+`xattr` + `xxd`, and survive `cp` and `mv` — but are **not built**. Across
+`~/Development` (465,061 files) there was not a single tag.
 
-**Afgeleide data komt nooit als xattr op bestanden.** Dan worden wij de nieuwe
-`.DS_Store`: duizenden bestanden bekladden met gegevens die morgen niet kloppen.
-Alles wat afgeleid is, leeft in de index.
+**Derived data never becomes an xattr on a file.** That way lies becoming the
+new `.DS_Store`: thousands of files smeared with facts that will be wrong
+tomorrow. Everything derived lives in memory, rebuilt on demand.
 
-### Indexformaat
+## What was measured, and what it changed
 
-Eén regelgebaseerd bestand, met de hand geparsed zoals sshctl de ssh-config parseert:
+- **26 repositories** under `~/Development`, found by `find` in 0.027 s. A full
+  sweep is ≈2.5 s — which is why there is **no background service**.
+- **An archived repository took 209 s** for a single `git status`. The 0.1 s
+  average held only for active work. Hence a patience of 1.5 s, after which a
+  repository is listed as unread rather than waited on.
+- **`ls -lR@`** lists a whole tree with its xattr names in one process: 561
+  files in 0.07 s. Kept in reserve should tags ever return.
+- **Terminal.app knows 256 colours** (`infocmp`) and none of the inline-image
+  protocols, which is why pictures are drawn as half blocks.
 
-```
-dev:inode ⇥ pad ⇥ mtime ⇥ grootte ⇥ type ⇥ git-staat
-```
+## Deliberately not built
 
-`dev:inode` erbij omdat het inode-nummer op APFS gelijk blijft bij hernoemen en
-verplaatsen binnen een volume: een bestand dat buiten onze tool om verhuist, wordt
-herkend en de index heelt zichzelf.
-
-## v0.1
-
-- 📁 Mappen — boom links, bestanden rechts
-- 📦 Repo's — alle git-repo's met tak en dirty-telling
-- 🔥 Onopgeslagen werk — elk gewijzigd bestand over alle repo's heen
-- sorteren (naam/type/datum), selecteren met spatie, copy/cut/paste
-- cd-on-exit: pad naar een bestandje, shell-functie doet de `cd`
-
-Gemeten: 25 repo's onder `~/Development`, gevonden in 0,027 s; volledige sweep ≈ 2,5 s.
-**Geen achtergronddienst.** Lui berekenen bij het openen van een map is onmerkbaar;
-een launchd-agent verdient zijn plaats pas als de globale lijst ogenblikkelijk moet
-zijn of meldingen moet geven. v0.2-beslissing, met echte ervaring.
-
-Schatting: ~750 regels bovenop `term.rs`, plus ~350 voor de index en de git-bronnen.
+- **Manual tagging.** It only works if it is automatic.
+- **A daemon.** Lazy computation is imperceptible; the global views cost
+  seconds once.
+- **Opening a file from inside an archive.** You could save, and the saving
+  would go nowhere. Extracting into the folder you are standing in is the honest
+  version.
+- **A parser for anything a system tool already reads.** Markdown is the single
+  exception, because macOS ships nothing for it.
 
 ## Open
 
-- **Naam.** `fsctl` is een werknaam.
-- **Paste bij naamconflict**: vragen (met "op alles toepassen"), automatisch
-  hernoemen naar `naam-2`, of overslaan?
-- **Selectie globaal of per map?** Globaal is krachtiger — aanvinken in drie mappen,
-  in één keer plakken — maar vraagt dat je toont hoeveel er buiten beeld staat.
-- **Symlinks bij kopiëren**: de link meenemen (advies) of het doel uitschrijven.
-- **Verwijderen** stond niet in de wensenlijst. Later, en dan naar `~/.Trash`.
-
-## v0.2 en verder
-
-Filters als vierde bron (opgeslagen query's over de index) · `❓ in een repo maar niet
-in git` · `🚫 genegeerd` · voortgangsbalk via `ditto -V` · prullenbak via osascript ·
-launchd-sweep · breedtetabel voor emoji en CJK.
+- **Linux.** It runs, but `open`, the trash, `plutil` and the APFS clone are
+  Apple-shaped. A small platform layer would fix it; it needs a machine to test
+  on.
+- **Progress while copying.** `ditto -V` writes a line per file and could feed a
+  bar.
+- **Saved filters** as a fourth source, over the same derived facts.

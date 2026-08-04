@@ -1,26 +1,28 @@
 # fsctl
 
-Een bestandsbeheerder voor de terminal, met twee kolommen: links een **bron**,
-rechts de items daarvan. De mappenboom is maar één van de bronnen — git weet
-welke repo's er zijn en wat er niet opgeslagen is, en dat levert twee extra
-perspectieven op dezelfde bestanden zonder een tweede manier van tekenen.
+A file manager for the terminal, in two columns: a **source** on the left, its
+items on the right. The folder tree is only one of those sources — git knows
+which repositories exist and what is unsaved in them, and that gives two more
+views of the same files without a second way of drawing anything.
 
-**Nul dependencies.** De terminal-laag is eigen werk (overgenomen uit sshctl),
-en al het echte werk gaat naar het systeem: `cp` en `mv` verplaatsen de bytes,
-`git status` kent de repo's, `open` opent bestanden, `stty` zet de terminal in
-raw mode.
+**Zero dependencies.** The terminal layer is ours (carried over from
+[sshctl](https://github.com/RyGe87/sshctl)), and all the real work goes to the
+system: `cp` and `mv` move the bytes, `git status` reports the repositories,
+`open` opens files, `stty` puts the terminal in raw mode.
 
-## Installeren
+macOS only, and honest about it — see [Limits](#limits-of-v01).
+
+## Install
 
 ```sh
 cargo build --release
 ln -sf "$PWD/target/release/fsctl" /opt/homebrew/bin/fsctl
 ```
 
-### Meelopen met je shell
+### Walking with your shell
 
-`q` schrijft de map waar je stond weg, zodat je shell erheen kan springen. Zet
-dit in `~/.zshrc`:
+`q` writes down the folder you were standing in, so your shell can follow you
+there. Put this in `~/.zshrc`:
 
 ```sh
 f() {
@@ -31,226 +33,215 @@ f() {
 }
 ```
 
-Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
+After that `f` is your file manager, and where you leave it is where you stand.
 
-## Toetsen
+## Keys
 
 | | |
 |---|---|
-| `1` `2` `3` | van bron wisselen |
-| `Tab` | van kolom wisselen |
-| `j` `k` · pijltjes | omhoog en omlaag |
-| `J` `K` · `Ctrl`+pijl | tien tegelijk |
-| `l` `→` | map uitklappen, of naar rechts |
-| `h` `←` | map dichtklappen, of terug naar links |
-| `Enter` | bestand openen met `open` |
-| `w` | de map onder de cursor wordt de wortel van de boom |
-| `W` | de wortel één map omhoog |
-| `spatie` | bestand aan- of afvinken |
-| `c` `m` `v` | kopiëren · verplaatsen (vraagt waarheen) · plakken |
-| `z` | de selectie hier inpakken tot een zip |
-| `p` | in het bestand kijken (`j`/`k` op en neer, `d`/`f` zijwaarts, `t` ruw/opgemaakt) |
-| `x` `Del` | naar de prullenbak (vraagt eerst) |
-| `s` `u` | sorteren (naam/type/datum) · omkeren |
-| `.` | verborgen bestanden tonen |
-| `r` | verversen |
-| `Esc` | selectie wissen, daarna het klembord |
-| `?` | de hulp, met alles wat hier staat |
-| `q` | sluiten |
+| `1` `2` `3` | switch source |
+| `Tab` | switch column |
+| `j` `k` · arrows | up and down |
+| `J` `K` · `Ctrl`+arrow | ten at a time |
+| `l` `→` | open a folder, or move right |
+| `h` `←` | close a folder, or move back left |
+| `Enter` | open the file with `open` |
+| `w` | make the folder under the cursor the root of the tree |
+| `W` | lift the root one level |
+| `space` | tick a file |
+| `c` `m` `v` | copy · move (asks where to) · paste |
+| `z` | pack the selection into a zip, here |
+| `p` | look into the file (`j`/`k` up and down, `d`/`f` sideways, `t` raw) |
+| `x` `Del` | to the trash (asks first) |
+| `s` `u` | sort by name/type/date · reverse |
+| `.` | show hidden files |
+| `r` | refresh |
+| `Esc` | clear the selection, then the clipboard |
+| `?` | the help, with everything on this list |
+| `q` | quit |
 
-In de boom staat vóór elke map wat je ervan mag verwachten:
+In the tree, a mark in front of a folder says what to expect:
 
 ```
-▾  uitgeklapt            ▸  er zitten mappen in
-×  écht helemaal leeg    ·  ziet er leeg uit, maar bevat verborgen inhoud
-(niets)  alleen bestanden — en die staan rechts
+▾  open                  ▸  holds folders
+×  truly empty           ·  looks empty, holds hidden content
+(nothing)  files only — and those are on the right
 ```
 
-Het driehoekje en het kruisje beantwoorden bewust **verschillende** vragen. Het
-driehoekje gaat over wat uitklappen zou tonen, dus het volgt je `.`-instelling —
-een driehoekje dat opengaat op niets is een leugen. Het kruisje gaat over wat er
-werkelijk staat, verborgen bestanden meegeteld, want `cp` en `mv` werken op de
-map zoals die op schijf staat en niet op onze gefilterde weergave. Een map met
-alleen een `.env` erin mag dus nooit "leeg" heten; die krijgt een punt.
+The triangle and the cross answer **different** questions on purpose. The
+triangle is about what unfolding would show, so it follows your `.` setting — a
+triangle that opens onto nothing is a lie. The cross is about what is actually
+there, hidden files included, because `cp` and `mv` act on the folder as it is
+on disk and not on our filtered view of it. A folder holding nothing but a
+`.env` may never be called empty; it gets a dot.
 
-**Mappen links, bestanden rechts.** De boom is de enige plek waar een map
-staat; de rechterkolom toont er geen. Een hele map kopiëren doe je dus met de
-cursor in de boom: `c` of `m` pakt daar de map waar je op staat. In de
-rechterkolom werken ze op wat je hebt aangevinkt, of anders op de regel waar je
-staat.
+**Folders on the left, files on the right.** The tree is the only place a folder
+lives; the right column shows none. Copying a whole folder is therefore done
+from the tree: `c` or `m` takes the folder under the cursor. On the right they
+work on what you ticked, or else on the row you are standing on.
 
-## De bronnen
+## The sources
 
-- **Mappen** — de gewone boom, natuurlijke sortering (`v2` vóór `v10`),
-  symlinks als symlink.
-- **Repo's** — elke git-repo onder je zoekpaden, met tak, aantal wijzigingen en
-  ↑↓ tegenover de remote.
-- **Onopgeslagen** — alleen de repo's mét wijzigingen; rechts elk gewijzigd of
-  ongetrackt bestand.
+- **Folders** — the ordinary tree, natural sorting (`v2` before `v10`),
+  symlinks kept as symlinks.
+- **Repos** — every git repository under your search roots, with branch, number
+  of changes, and ↑↓ against the remote.
+- **Unsaved** — only the repositories that have changes; on the right, every
+  modified or untracked file.
 
-In elke mapweergave die binnen een repo valt, krijgen de bestanden hun
-git-staat als kolom. Dat kost geen extra `git`-aanroep: de status is al binnen.
+In any folder view that falls inside a repository, the files carry their git
+state as a column. That costs no extra `git` call: the status is already in
+hand.
 
-Zoekpaden zijn standaard `~/Development`. Overschrijven kan met `FSCTL_ROOTS`,
-dubbelepunt-gescheiden zoals een `PATH`:
+Search roots default to `~/Development`. Override with `FSCTL_ROOTS`,
+colon-separated like a `PATH`:
 
 ```sh
-FSCTL_ROOTS="$HOME/Development:$HOME/Werk" fsctl
+FSCTL_ROOTS="$HOME/Development:$HOME/Work" fsctl
 ```
 
-## Wat het aan het systeem overlaat
+## What it leaves to the system
 
-| handeling | commando | waarom |
+| action | command | why |
 |---|---|---|
-| kopiëren | `/bin/cp -Rc`, terugval `-R` | behoudt xattrs, symlinks en rechten; `-c` kloont op APFS (ogenblikkelijk, geen extra schijfruimte) |
-| verplaatsen | `/bin/mv -f` | regelt de volumegrens zelf |
-| openen | `/usr/bin/open` | macOS weet welke app erbij hoort |
-| repo's vinden | `/usr/bin/find` | één proces over honderdduizenden bestanden |
-| repo-staat | `git --no-optional-locks status --porcelain --branch` | per repo, nooit per bestand |
-| json en plists opmaken | `/usr/bin/plutil` | kent ze allebei, en zegt precies waar een JSON stuk is |
-| xml opmaken | `/usr/bin/xmllint` | ships met macOS |
-| tijdzone | `/bin/date +%z` | goedkoper dan zelf `/etc/localtime` lezen |
+| copy | `/bin/cp -Rc`, falling back to `-R` | keeps xattrs, symlinks and permissions; `-c` clones on APFS (instant, no extra disk) |
+| move | `/bin/mv -f` | handles the volume boundary itself |
+| open | `/usr/bin/open` | macOS knows which app belongs to it |
+| find repositories | `/usr/bin/find` | one process over hundreds of thousands of files |
+| repository state | `git --no-optional-locks status --porcelain --branch` | per repository, never per file |
+| json and plists | `/usr/bin/plutil` | knows both, and says exactly where a JSON is broken |
+| xml | `/usr/bin/xmllint` | ships with macOS |
+| images | `/usr/bin/sips` | reads everything Apple reads |
+| archives | `/usr/bin/unzip`, `/usr/bin/zip`, `/usr/bin/tar` | listing and streaming, without unpacking |
+| trash | `/usr/bin/osascript` → Finder | put-back is recorded by whoever moves the file |
+| cloud flags | `/usr/bin/stat` | `st_flags` is not something Rust's std will show |
+| timezone | `/bin/date +%z` | cheaper than parsing `/etc/localtime` ourselves |
 
-Argumenten gaan rechtstreeks naar het proces, nooit via een shell. Een bestand
-dat `; rm -rf ~` heet is dus gewoon een bestand met een ongelukkige naam.
+Arguments go straight to the process, never through a shell. A file called
+`; rm -rf ~` is just a file with an awkward name.
 
-## Kopiëren, en wat er bij een botsing gebeurt
+## Copying, and what happens on a clash
 
-`cp -R` **voegt mappen samen**; het vervangt ze niet. Een bestand dat alleen op
-de bestemming bestond, blijft dus staan — Finder gooit in datzelfde geval de
-hele doelmap weg. Die veiligere semantiek erven we gratis door het werk uit
-handen te geven.
+`cp -R` **merges** folders; it does not replace them. A file that existed only
+at the destination survives — Finder, in the same situation, throws the whole
+destination folder away. We inherit the safer semantics for free by handing the
+work over.
 
-Botsende namen worden vóóraf geteld, niet onderweg ontdekt: je krijgt één vraag
-met het volledige overzicht in plaats van zeven onderbrekingen.
+Clashing names are counted **before** anything moves, not discovered along the
+way: you get one question with the full picture instead of seven interruptions.
 
-- **[B] Beide bewaren** — de aankomst wordt `naam-2`; niets op de bestemming
-  wordt aangeraakt
-- **[O] Overschrijven** — mappen worden samengevoegd, gelijknamige bestanden
-  vervangen
-- **[S] Overslaan** — de botsers blijven staan, de rest gaat door
-- **[Esc]** — afbreken
+- **[B] Keep both** — the arrival becomes `name-2`; nothing at the destination
+  is touched
+- **[O] Overwrite** — folders are merged, files of the same name replaced
+- **[S] Skip** — the clashing ones stay put, the rest goes
+- **[Esc]** — cancel
 
-## Een blik in een bestand
+## Moving: where to?
 
-`p` opent het bestand onder de cursor in een venster: genummerde regels,
-scrollen met `j`/`k`, `PgUp`/`PgDn` en `g`/`G`, en **zijwaarts** met `d`/`f` in
-stappen van acht kolommen (`0` schuift terug naar het begin; `h`/`l` en de
-pijltjes doen hetzelfde). Lange regels
-worden dus afgekapt en niet omgebroken — code blijft leesbaar, en wat erbuiten
-valt schuif je in beeld. Bedoeld om te bevestigen dat je
-het juiste bestand te pakken hebt, niet om in te lezen — daarvoor is `Enter`,
-dat de gewone app opent.
-
-**Afbeeldingen worden een miniatuur** van halve blokjes: elk `▀` draagt twee
-pixels — zijn inkt is de bovenste, zijn papier de onderste — zodat je de
-verticale resolutie terugwint die een teken je kost. Doorzichtige pixels laten
-de terminal zelf zien, dus een icoon houdt zijn vorm.
-
-Het decoderen doet `sips`, dat elk formaat leest dat Apple leest: png, jpeg,
-heic, tiff, gif, bmp, pdf. Terminal.app kent 256 kleuren, dus de kleuren worden
-naar dat palet gebracht — een 6×6×6-kubus, met de grijstrap voor wat daar
-grijs is. Onder in beeld staat wat het origineel meet.
-
-**Markdown wordt gerenderd**: koppen vet zonder hun hekjes, `-` wordt `•`,
-`**sterk**` en `_nadruk_` verliezen hun tekens maar houden hun nadruk, code
-kleurt, een citaat krijgt een streep, `---` wordt een lijn, en in een codeblok
-blijft alles staan zoals het er staat. Elke bronregel blijft één schermregel,
-zodat de regelnummers blijven kloppen en `t` je hetzelfde bestand toont in
-plaats van een andere vorm ervan.
-
-Dit is het enige formaat dat we zélf opmaken — macOS brengt er geen tool voor
-mee. `snake_case_namen` worden met rust gelaten: een liggend streepje midden in
-een woord is geen nadruk.
-
-**JSON, XML en property lists worden opgemaakt** voor je ze ziet, door de tools
-die macOS zelf meebrengt: `plutil` voor JSON en plists, `xmllint` voor XML. Wij
-schrijven hier geen parsers. `t` toont het origineel zoals het op schijf staat.
-
-Weigert de formatter, dan is dat juist het nieuws: een JSON-bestand dat niet
-opmaakt, is stuk — en plutil zegt waar. Je krijgt de ruwe tekst plus de klacht:
+`m` takes what you ticked and asks straight away where it should go, in the same
+tree you already know:
 
 ```
-  1 {"kapot":}
-⚠ Invalid value around line 1, column 9.   ·   esc sluiten
-```
-
-Een **binaire** plist is technisch geen tekst, maar `plutil` maakt er weer XML
-van, dus die kun je gewoon bekijken.
-
-Of iets tekst is, wordt verder bepaald door de **inhoud** en niet door de extensie:
-een `Makefile` of `.zshrc` heeft er geen, en een `.log` kan best binair zijn.
-Een nulbyte in de eerste 128 KB betekent geen tekst, en dan zegt het venster
-dat gewoon. Meer dan 128 KB wordt niet gelezen; loopt het bestand door, dan
-staat dat onderaan.
-
-## In een archief kijken
-
-`p` op een `.zip`, `.dls`, `.jar`, `.epub`, `.tar.gz` of familie toont wat erin
-zit — **zonder uit te pakken**:
-
-```
-┌ proef.zip — 3 items ───────────────────────────────────┐
-│  tekst.txt                                        17 B │
-│  map/                                                — │
-│  map/data.json                                     8 B │
-│                                                        │
-│enter bekijken   ·   e hier uitpakken   ·   esc sluiten │
-└────────────────────────────────────────────────────────┘
-```
-
-`Enter` op een lid leest het rechtstreeks uit het archief — `unzip -p` schrijft
-het naar zijn uitvoer, wij lezen mee. Er komt dus **geen tijdelijk bestand** aan
-te pas: niets om op te ruimen, en niets dat je per ongeluk bewerkt op een plek
-die straks verdwijnt. `Esc` brengt je terug naar de lijst.
-
-Openen in een andere app zit er bewust niet in, precies om die reden. Wil je
-ermee werken, dan is `e` het eerlijke antwoord: dat pakt het geselecteerde lid
-uit **in de map waar je staat** — een echt bestand, op een plek die morgen nog
-bestaat. Een bestaande naam wordt daarbij nooit overschreven.
-
-DiscoveryLab-packs zijn zips, dus `p` op een `.dls` toont meteen zijn
-`pack.json`.
-
-## Verplaatsen: waarheen?
-
-`m` neemt wat je hebt aangevinkt én vraagt meteen waar het heen moet, in
-dezelfde boom die je links al kent:
-
-```
-┌ Waarheen met 1 item(s)? ─────────────────────────────┐
+┌ Where to with 1 item(s)? ────────────────────────────┐
 │  ▾ movetest                                          │
-│      bron                                            │
-│    ▸ doel                                            │
+│      source                                          │
+│    ▸ destination                                     │
 │                                                      │
-│v hierheen   ·   l h open en dicht   ·   esc zelf kiezen│
+│v to here  ·  l h open and close  ·  esc pick yourself│
 └──────────────────────────────────────────────────────┘
 ```
 
-`l` en `h` klappen mappen open en dicht, `j`/`k` en `J`/`K` bewegen, `v` doet
-het. Botsen er namen, dan komt gewoon de bekende vraag met [B]/[O]/[S] erachter.
+`Esc` closes the tree but **leaves the clipboard filled**, so you can always
+walk somewhere yourself and press `v` there, as before. `c` is unchanged; only
+`m` asks.
 
-`Esc` sluit de boom maar **laat het klembord gevuld**: je kunt dus altijd nog
-zelf naar een map navigeren en daar `v` drukken, zoals voorheen. `c` (kopiëren)
-werkt onveranderd op die manier — alleen `m` vraagt het meteen.
+## Packing
 
-## Inpakken
+`z` makes a zip of what you ticked — or of the row you are on, or of the folder
+under the tree cursor. `zip -r` runs from the deepest folder that holds them
+all, with relative names, so the archive carries the shape the files had rather
+than the `/Users/you/…` of the machine that made it.
 
-`z` maakt een zip van wat je hebt aangevinkt — of van de regel waar je staat, of
-van de map onder de cursor in de boom. `zip -r` draait daarbij vanuit de diepste
-map die ze allemaal omvat, met relatieve namen, zodat het archief dezelfde vorm
-draagt als de bestanden hadden en niet het `/Users/jij/…` van de machine waarop
-het gemaakt is.
+One item lends its own name; several take the name of the folder they land in.
+Pack the folder you are standing in and the archive lands beside it — an archive
+that contains itself is a riddle. An existing name is never overwritten; it
+becomes `name-2.zip`.
 
-Eén item leent zijn eigen naam, meerdere krijgen de naam van de map waarin ze
-landen. Pak je de map in waar je zelf in staat, dan komt het archief ernáást te
-staan — een archief dat zichzelf bevat is een raadsel. Een bestaande naam wordt
-nooit overschreven; die wordt `naam-2.zip`.
+## A look inside a file
 
-## Cloudmappen
+`p` opens the file under the cursor in a window: numbered lines, scrolling with
+`j`/`k`, `PgUp`/`PgDn` and `g`/`G`, and **sideways** with `d`/`f` in steps of
+eight columns (`0` returns to the start; `h`/`l` and the arrows do the same).
+Long lines are cut rather than wrapped — code keeps its shape, and what falls
+off the edge you slide into view.
 
-iCloud, OneDrive en Proton Drive zijn gewone mappen op je schijf, dus je bladert
-er zonder meer doorheen:
+**Markdown is rendered**: headings bold without their hashes, `-` becomes `•`,
+`**strong**` and `_emphasis_` lose their markers and keep their weight, code
+colours, a quote gets a rule down its side, `---` becomes a line, and inside a
+fence everything stays exactly as typed. Every source line stays one screen
+line, so the numbers keep telling the truth and `t` shows you the same file
+rather than a different shape of it.
+
+This is the only format we lay out ourselves — macOS ships no tool for it.
+`snake_case_names` are left alone: an underscore inside a word is not emphasis.
+
+**JSON, XML and property lists are formatted** before you see them, by the tools
+macOS already brings: `plutil` for JSON and plists, `xmllint` for XML. No
+parsers here. `t` shows the original as it sits on disk.
+
+When the formatter refuses, that is the news: a JSON file that will not format
+is broken, and plutil says where. You get the raw text plus the complaint:
+
+```
+  1 {"broken":}
+⚠ Invalid value around line 1, column 9.   ·   esc close
+```
+
+A **binary** plist is not text by any honest test, and is perfectly readable
+once `plutil` has turned it back into XML — so that one case is allowed through.
+
+Whether something is text at all is decided by its **content**, not its
+extension: a `Makefile` or `.zshrc` has none, and a `.log` is sometimes binary.
+A zero byte in the first 128 KB settles it, and the window says so. Nothing
+beyond 128 KB is read; if the file runs on, that is noted at the bottom.
+
+**Images become a thumbnail** of half blocks: every `▀` carries two pixels — its
+ink the upper one, its paper the lower — which buys back the vertical resolution
+a character cell costs. See-through pixels are left to the terminal, so an icon
+keeps its shape. `sips` does the decoding and reads everything Apple reads: png,
+jpeg, heic, tiff, gif, bmp, pdf. Terminal.app knows 256 colours, so the colours
+land in that palette — a 6×6×6 cube, with the grey ramp for what is grey.
+
+## Looking inside an archive
+
+`p` on a `.zip`, `.dls`, `.jar`, `.epub`, `.tar.gz` or family shows what is in
+there — **without unpacking**:
+
+```
+┌ test.zip — 3 items ────────────────────────────────────┐
+│  text.txt                                         17 B │
+│  dir/                                                — │
+│  dir/data.json                                     8 B │
+│                                                        │
+│enter look   ·   e extract here   ·   esc close         │
+└────────────────────────────────────────────────────────┘
+```
+
+`Enter` on a member reads it straight out of the archive — `unzip -p` writes it
+to its output and we read along. **No temporary file** is involved: nothing to
+clean up, and nothing you might edit by accident in a place that is about to
+vanish. `Esc` takes you back to the listing.
+
+Opening a member in another app is deliberately absent, for exactly that reason:
+you could save, and the saving would go nowhere. `e` is the honest answer — it
+extracts the selected member **into the folder you are standing in**, as a real
+file, in a place that will still be there tomorrow. An existing name is never
+overwritten.
+
+## Cloud folders
+
+iCloud, OneDrive and Proton Drive are ordinary folders on your disk, so browsing
+them needs nothing special:
 
 ```
 ~/Library/Mobile Documents/com~apple~CloudDocs    iCloud Drive
@@ -258,77 +249,82 @@ er zonder meer doorheen:
 ~/Library/CloudStorage/ProtonDrive-…              Proton Drive
 ```
 
-Wat je daar ziet staan, staat er niet noodzakelijk *echt*. macOS zet de vlag
-`dataless` op bestanden die alleen in de lijst bestaan: volledige naam, volledige
-grootte, geen bytes. Die krijgen een **☁** in de typekolom:
+What you see there is not necessarily *there*. macOS flags files that exist only
+in the listing as `dataless`: full name, full size, no bytes. Those get a **☁**
+in the type column:
 
 ```
-▢ jaarverslag-2025.pdf          ☁ pdf
+▢ annual-report-2025.pdf        ☁ pdf
 ```
 
-Bekijken (`p`) of openen (`Enter`) dwingt dan een download af, en daar vraagt
-fsctl eerst naar — met de omvang erbij, want dat is wat het kost:
+Looking (`p`) or opening (`Enter`) then forces a download, and fsctl asks first —
+with the size, because that is what it costs:
 
 ```
-┌ Uit de cloud ────────────────────────────────────────────┐
-│jaarverslag-2025.pdf                                      │
-│staat in de cloud, niet op deze schijf (4,2 M)            │
+┌ From the cloud ──────────────────────────────────────────┐
+│annual-report-2025.pdf                                    │
+│in the cloud, not on this disk (4.2 M)                    │
 │                                                          │
-│[Enter] ophalen en bekijken    [Esc] laten staan          │
-│Het scherm staat stil zolang het binnenkomt.              │
+│[Enter] fetch and look        [Esc] leave it              │
+│The screen stands still while it comes in.                │
 └──────────────────────────────────────────────────────────┘
 ```
 
-De vlaggen worden met één `stat` voor de hele lijst opgehaald, en alleen in een
-cloudmap — een gewone map betaalt niets voor een vraag die daar niet bestaat.
+The flags come from one `stat` for the whole listing, and only inside a cloud
+folder — an ordinary directory pays nothing for a question that cannot arise
+there.
 
-Twee dingen blijven staan: **kopiëren** van een ☁-bestand haalt het ook op, maar
-daar wordt niet naar gevraagd (dat is een bewuste handeling), en zet `FSCTL_ROOTS`
-niet op een cloudmap — een repo-scan door duizenden niet-lokale bestanden duurt
-eindeloos.
+Two things stand: **copying** a ☁ file fetches it too, without asking (that is a
+deliberate act), and do not point `FSCTL_ROOTS` at a cloud folder — a repository
+sweep through thousands of non-local files takes forever.
 
-## Verwijderen
+## Deleting
 
-Naar de prullenbak, nooit rechtstreeks weg. Finder doet het via `osascript`,
-want de put-back-informatie voor "Zet terug" wordt vastgelegd door wie het
-verplaatst — en dat is alleen Finder. Paden reizen als argumenten, niet in de
-scripttekst, zodat een aanhalingsteken in een naam geen deel van het programma
-kan worden.
+To the trash, never straight out. Finder does it through `osascript`, because
+the put-back information for "Put Back" is recorded by whoever moves the file —
+and only Finder records it. Paths travel as arguments, not inside the script
+text, so a quote in a name cannot become part of the program.
 
-De vraag vooraf zegt wat het kost: hoeveel items, hoeveel mappen, en — het
-enige wat je scherm je niet kon vertellen — **welke mappen verborgen inhoud
-bevatten die mee weggaat**. Dat is dezelfde `·` uit de boom, nu als
-waarschuwing.
+The question up front says what it costs: how many items, how many folders, and
+— the one thing your screen could not have told you — **which folders hold
+hidden content that goes along**. That is the same `·` from the tree, now as a
+warning.
 
-Weigert Finder (automatisering niet toegestaan, Finder bezig), dan gaan de
-bestanden alsnog naar `~/.Trash`, met de hand verplaatst. Terug te halen, maar
-zonder "Zet terug"; de statusregel zegt het erbij. Wil je Finder er helemaal
-buiten houden: `FSCTL_TRASH=plain`.
+If Finder will not play along (automation not permitted, Finder busy), the files
+still go to `~/.Trash`, moved by hand. Recoverable, but without put-back; the
+status line says so. To keep Finder out of it entirely: `FSCTL_TRASH=plain`.
 
-De wortel van de boom kan niet weg — daar zou de weergave op stukvallen.
+The root of the tree cannot be deleted — the view would have nothing to stand
+on.
 
-## Grenzen van v0.1
+## Limits of v0.1
 
-- **`Ctrl-J` bestaat niet.** Dat is byte `0x0A`, en dat *is* Enter — geen
-  terminal kan de twee uit elkaar houden. Daarom doen `J` en `K` (met shift)
-  de sprong van tien, en `Ctrl`+pijltje waar je terminal die doorstuurt.
-  Let op: macOS houdt `Ctrl`+↑/↓ standaard voor Mission Control.
+- **macOS only.** On Linux it browses fine, but `open`, the trash and the JSON
+  formatting are Apple-shaped, and `cp -Rc` falls back to a plain `cp -R` that
+  keeps no xattrs.
+- **`Ctrl-J` does not exist.** That is byte `0x0A`, and that *is* Enter — no
+  terminal can tell the two apart. Hence `J`/`K` for the leap of ten, and
+  `Ctrl`+arrow where your terminal forwards it. Note that macOS keeps
+  `Ctrl`+↑/↓ for Mission Control by default.
+- **No progress bar.** An APFS clone is instant; a real copy across a volume
+  boundary makes the tool stand still for a moment. `ditto -V` could feed one
+  later.
+- **Slow repositories are skipped.** Measured here: an ordinary repository
+  answers in ~0.1 s, but an archived one with a large untracked tree took 209 s.
+  After a second and a half fsctl stops waiting and shows "too slow — not read".
+  The repository stays in the list.
+- **No background service.** A sweep over 26 repositories costs a few seconds;
+  `r` refreshes only what has moved since last time (measured against
+  `.git/index` and `.git/HEAD`).
+- **Character width is a compact table**, not the full Unicode database. A rare
+  character can cost one cell of alignment, never more.
 
-- **Geen voortgangsbalk.** Een APFS-kloon is ogenblikkelijk; een echte kopie
-  over een volumegrens laat de tool even stilstaan. `ditto -V` kan dat later
-  voeden.
-- **Trage repo's worden overgeslagen.** Gemeten op deze machine: een gewone
-  repo antwoordt in ~0,1 s, maar een gearchiveerde met een grote ongetrackte
-  boom deed er 209 s over. Na anderhalve seconde stopt fsctl met wachten en
-  toont "te traag — niet gelezen". De repo blijft in de lijst staan.
-- **Geen achtergronddienst.** Een sweep over 26 repo's kost een paar seconden;
-  `r` ververst alleen wat sinds de vorige keer bewoog (afgemeten aan
-  `.git/index` en `.git/HEAD`).
-- **Tekenbreedte is een compacte tabel**, geen volledige Unicode-database. Een
-  zeldzaam teken kan één cel uitlijning kosten, nooit meer dan dat.
+## Design
 
-## Ontwerp
+See [DESIGN.md](DESIGN.md) — including the measurements the choices rest on, and
+what was deliberately *not* built: manual tagging, a daemon, metadata written as
+xattrs onto your files.
 
-Zie [DESIGN.md](DESIGN.md) — inclusief de gemeten cijfers waarop de keuzes
-rusten, en wat er bewust *niet* gebouwd is (handmatig taggen, een daemon,
-metadata als xattr op je bestanden).
+## Licence
+
+MIT — see [LICENSE](LICENSE).

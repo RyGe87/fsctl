@@ -64,11 +64,11 @@ fn dimensions(path: &Path) -> Option<(u32, u32)> {
 /// The thumbnail, as rows of half-blocks, plus what it measures.
 pub fn thumbnail(path: &Path, cols: usize, rows: usize) -> Result<(Vec<Styled>, String), String> {
     if cols < 4 || rows < 2 {
-        return Err("te weinig ruimte".to_string());
+        return Err("not enough room".to_string());
     }
-    let (source_w, source_h) = dimensions(path).ok_or("sips leest dit bestand niet")?;
+    let (source_w, source_h) = dimensions(path).ok_or("sips cannot read this file")?;
     if source_w == 0 || source_h == 0 {
-        return Err("geen afmetingen".to_string());
+        return Err("no dimensions".to_string());
     }
 
     // Two pixels to a row, and never bigger than the picture itself: blowing a
@@ -92,14 +92,14 @@ pub fn thumbnail(path: &Path, cols: usize, rows: usize) -> Result<(Vec<Styled>, 
         .map_err(|e| e.to_string())?;
     if !out.status.success() {
         let _ = std::fs::remove_file(&target);
-        return Err("sips kon dit niet omzetten".to_string());
+        return Err("sips could not convert this".to_string());
     }
 
     let bytes = std::fs::read(&target).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&target);
     let picture = parse_bmp(&bytes)?;
 
-    let note = format!("{source_w}×{source_h} · miniatuur {width}×{height}");
+    let note = format!("{source_w}×{source_h} · thumbnail {width}×{height}");
     Ok((to_blocks(&picture), note))
 }
 
@@ -127,14 +127,14 @@ fn u32_at(bytes: &[u8], at: usize) -> u32 {
 /// stored bottom-up unless the height says otherwise.
 fn parse_bmp(bytes: &[u8]) -> Result<Picture, String> {
     if bytes.len() < 54 || &bytes[..2] != b"BM" {
-        return Err("geen BMP".to_string());
+        return Err("not a BMP".to_string());
     }
     let start = u32_at(bytes, 10) as usize;
     let width = u32_at(bytes, 18) as i32;
     let raw_height = u32_at(bytes, 22) as i32;
     let bpp = u16::from_le_bytes([bytes[28], bytes[29]]) as usize;
     if width <= 0 || raw_height == 0 || !(bpp == 24 || bpp == 32) {
-        return Err(format!("BMP van {bpp} bits wordt niet gelezen"));
+        return Err(format!("BMP with {bpp} bits is not read"));
     }
     let width = width as usize;
     let top_down = raw_height < 0;
@@ -143,7 +143,7 @@ fn parse_bmp(bytes: &[u8]) -> Result<Picture, String> {
     // Rows are padded to a multiple of four bytes.
     let stride = (width * bpp / 8).div_ceil(4) * 4;
     if start + stride * height > bytes.len() {
-        return Err("BMP is afgekapt".to_string());
+        return Err("BMP is truncated".to_string());
     }
 
     let mut pixels = Vec::with_capacity(width * height);
