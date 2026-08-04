@@ -47,6 +47,7 @@ Daarna is `f` je bestandsbeheerder, en waar je hem verlaat, sta je.
 | `W` | de wortel één map omhoog |
 | `spatie` | bestand aan- of afvinken |
 | `c` `x` `v` | kopiëren · knippen · plakken |
+| `p` | in het bestand kijken (`j`/`k` scrollen, `Esc` sluit) |
 | `d` `Del` | naar de prullenbak (vraagt eerst) |
 | `s` `u` | sorteren (naam/type/datum) · omkeren |
 | `.` | verborgen bestanden tonen |
@@ -125,6 +126,19 @@ met het volledige overzicht in plaats van zeven onderbrekingen.
   vervangen
 - **[S] Overslaan** — de botsers blijven staan, de rest gaat door
 - **[Esc]** — afbreken
+
+## Een blik in een bestand
+
+`p` opent het bestand onder de cursor in een venster: genummerde regels,
+scrollen met `j`/`k`, `PgUp`/`PgDn` en `g`/`G`. Bedoeld om te bevestigen dat je
+het juiste bestand te pakken hebt, niet om in te lezen — daarvoor is `Enter`,
+dat de gewone app opent.
+
+Of iets tekst is, wordt bepaald door de **inhoud** en niet door de extensie:
+een `Makefile` of `.zshrc` heeft er geen, en een `.log` kan best binair zijn.
+Een nulbyte in de eerste 128 KB betekent geen tekst, en dan zegt het venster
+dat gewoon. Meer dan 128 KB wordt niet gelezen; loopt het bestand door, dan
+staat dat onderaan.
 
 ## Verwijderen
 

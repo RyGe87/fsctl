@@ -12,6 +12,7 @@
 mod fsmodel;
 mod git;
 mod ops;
+mod preview;
 mod term;
 mod widgets;
 mod width;
@@ -93,10 +94,21 @@ struct DeleteAsk {
     concealing: Vec<String>,
 }
 
+/// A look inside a file: the lines we read, and how far down we have walked.
+struct Look {
+    name: String,
+    lines: Vec<String>,
+    offset: usize,
+    /// Set when the file runs on past what we read, or when it is not text at
+    /// all and this is the reason why.
+    note: Option<String>,
+}
+
 enum Modal {
     Conflict(Conflict),
     Delete(DeleteAsk),
     Help,
+    Look(Look),
 }
 
 struct App {
@@ -409,6 +421,7 @@ impl App {
                 self.rebuild_right();
             }
             KeyCode::Char('?') => self.modal = Some(Modal::Help),
+            KeyCode::Char('p') => self.look(),
             KeyCode::Char('d') | KeyCode::Delete => self.delete(),
             KeyCode::Char('w') => self.root_here(),
             KeyCode::Char('W') => self.root_up(),
@@ -435,6 +448,7 @@ impl App {
     fn on_modal_key(&mut self, code: KeyCode) {
         match self.modal {
             Some(Modal::Delete(_)) => self.on_delete_key(code),
+            Some(Modal::Look(_)) => self.on_look_key(code),
             Some(Modal::Help) => {
                 if matches!(
                     code,
@@ -463,6 +477,48 @@ impl App {
             return;
         };
         self.execute_paste(&conflict.dest, how);
+    }
+
+    fn on_look_key(&mut self, code: KeyCode) {
+        let height = self.right_height.max(1);
+        let Some(Modal::Look(look)) = &mut self.modal else {
+            return;
+        };
+        let last = look.lines.len().saturating_sub(1);
+        match code {
+            KeyCode::Down | KeyCode::Char('j') => look.offset = (look.offset + 1).min(last),
+            KeyCode::Up | KeyCode::Char('k') => look.offset = look.offset.saturating_sub(1),
+            KeyCode::PageDown => look.offset = (look.offset + height).min(last),
+            KeyCode::PageUp => look.offset = look.offset.saturating_sub(height),
+            KeyCode::Home | KeyCode::Char('g') => look.offset = 0,
+            KeyCode::End | KeyCode::Char('G') => look.offset = last,
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') | KeyCode::Enter => {
+                self.modal = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Opens the file under the cursor, in a box, without leaving the tool.
+    fn look(&mut self) {
+        let Some(item) = self.items.get(self.right_cursor) else {
+            self.status = "niets om in te kijken".into();
+            return;
+        };
+        let name = item.name.clone();
+        let (lines, note) = match preview::read(&item.path) {
+            preview::Preview::Text { lines, clipped } => (
+                lines,
+                clipped.then(|| "… alleen het begin van het bestand".to_string()),
+            ),
+            preview::Preview::NotText(reason) => (Vec::new(), Some(reason)),
+        };
+        self.modal = Some(Modal::Look(Look {
+            name,
+            lines,
+            offset: 0,
+            note,
+        }));
     }
 
     fn on_delete_key(&mut self, code: KeyCode) {
@@ -1030,14 +1086,81 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
         Some(Modal::Conflict(conflict)) => draw_conflict(frame, conflict, app),
         Some(Modal::Delete(ask)) => draw_delete(frame, ask),
         Some(Modal::Help) => draw_help(frame),
+        Some(Modal::Look(look)) => draw_look(frame, look),
         None => {}
     }
+}
+
+/// A file in a box: as much of it as the screen holds, and the line you are on.
+fn draw_look(frame: &mut term::Frame, look: &Look) {
+    let area = frame.area();
+    // Nearly the whole screen — a glance at a file wants room, unlike a
+    // question, which wants to stay small.
+    let w = area.width.saturating_sub(6).max(24);
+    let h = area.height.saturating_sub(4).max(6);
+    let box_area = Rect {
+        x: (area.width - w) / 2,
+        y: (area.height - h) / 2,
+        width: w,
+        height: h,
+    };
+    let inner = w.saturating_sub(2) as usize;
+    let rows = h.saturating_sub(2) as usize;
+
+    let mut lines: Vec<term::Line> = Vec::new();
+    if look.lines.is_empty() {
+        lines.push(term::Line::from(term::Span::styled(
+            look.note.clone().unwrap_or_default(),
+            Style::new().fg(Color::DarkGray),
+        )));
+    } else {
+        let numbers = look.lines.len().to_string().len().max(3);
+        for (i, line) in look
+            .lines
+            .iter()
+            .enumerate()
+            .skip(look.offset)
+            .take(rows.saturating_sub(1))
+        {
+            lines.push(term::Line::from(vec![
+                term::Span::styled(
+                    format!("{:>numbers$} ", i + 1, numbers = numbers),
+                    Style::new().fg(Color::DarkGray),
+                ),
+                term::Span::raw(width::truncate(line, inner.saturating_sub(numbers + 1))),
+            ]));
+        }
+    }
+
+    let footer = match (&look.note, look.lines.is_empty()) {
+        (Some(note), false) => format!("{note}   ·   esc sluiten"),
+        _ => format!(
+            "regel {} van {}   ·   j k scrollen   ·   esc sluiten",
+            (look.offset + 1).min(look.lines.len().max(1)),
+            look.lines.len()
+        ),
+    };
+    while lines.len() + 1 < rows {
+        lines.push(term::Line::default());
+    }
+    lines.push(term::Line::from(term::Span::styled(
+        width::truncate(&footer, inner),
+        Style::new().fg(Color::DarkGray),
+    )));
+
+    frame.render_widget(term::Clear, box_area);
+    frame.render_widget(
+        term::Paragraph::new(term::Text::from(lines)).block(
+            Block::bordered().title(format!(" {} ", width::truncate(&look.name, inner - 4))),
+        ),
+        box_area,
+    );
 }
 
 /// Everything the bottom bar used to say, at the moment you ask for it.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 13] = [
+    let rows: [(&str, &str); 14] = [
         ("1 2 3", "mappen · repo's · onopgeslagen werk"),
         ("Tab", "van kolom wisselen"),
         ("j k ↑ ↓", "bewegen · PgUp/PgDn per scherm · g G begin en eind"),
@@ -1046,6 +1169,7 @@ fn draw_help(frame: &mut term::Frame) {
         ("Enter", "bestand openen"),
         ("spatie", "bestand aan- of afvinken"),
         ("c x v", "kopiëren · knippen · plakken"),
+        ("p", "in een bestand kijken · j k scrollen"),
         ("d", "naar de prullenbak, na een vraag"),
         ("s u", "sorteren op naam/type/datum · omkeren"),
         (".", "verborgen bestanden tonen"),
