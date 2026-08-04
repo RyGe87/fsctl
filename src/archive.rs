@@ -172,7 +172,7 @@ pub fn read_member(path: &Path, member: &str) -> Result<Vec<u8>, String> {
 /// Takes one member out, into a folder of your choosing. The inner path is
 /// kept, so an archive cannot scatter its contents across your directory.
 pub fn extract(path: &Path, member: &str, into: &Path) -> Result<(), String> {
-    let mut command = match kind(path).ok_or("geen archief")? {
+    let command = match kind(path).ok_or("geen archief")? {
         Kind::Zip => {
             let mut c = Command::new("/usr/bin/unzip");
             // -n: an existing file is never overwritten by an archive.
@@ -185,7 +185,7 @@ pub fn extract(path: &Path, member: &str, into: &Path) -> Result<(), String> {
             c
         }
     };
-    run(std::mem::replace(&mut command, Command::new("/usr/bin/true"))).map(|_| ())
+    run(command).map(|_| ())
 }
 
 #[cfg(test)]
