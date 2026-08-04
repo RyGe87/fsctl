@@ -9,7 +9,7 @@
 //! Apple's frameworks read: png, jpeg, heic, tiff, gif, pdf. We ask it for a
 //! small BMP, which is a header and then the pixels, and place those.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use crate::markdown::Styled;
