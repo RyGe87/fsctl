@@ -126,9 +126,23 @@ tomorrow. Everything derived lives in memory, rebuilt on demand.
 
 ## Linux
 
-Done, and verified in a container on the Unraid box rather than reasoned about:
-it builds on rustc 1.97, all tests pass, the interface draws, and delete, move,
-pack and the JSON preview do what they say. A `toolbox` resolves the tools once
+Done, and verified in a container on the Unraid box rather than reasoned about.
+The second round, after everything below was built, checked all of it there:
+
+| | on Linux |
+|---|---|
+| build, 45 tests | rustc 1.97, all green |
+| the interface | draws, three layouts, `P` cycles |
+| JSON in the pane | formatted by python3 |
+| an archive in the pane | the tree, indented |
+| an archive behind `p` | two columns, folders unfold, a member reads |
+| HTML | source in the pane, read by `w3m` in the window |
+| rename | `tekst.txt` → `nieuw.txt` |
+| the writer | typed, saved, mode 754 kept, no scratch left |
+| delete | in `~/.local/share/Trash/files`, with its `.trashinfo` |
+
+Two things stay off there and say so in `--doctor`: `open` wants `xdg-utils`,
+and the ☁ column has no meaning where `dataless` does not exist. A `toolbox` resolves the tools once
 at startup, so one code path serves both systems and a missing tool is a
 sentence in `--doctor` instead of a mystery.
 
@@ -139,6 +153,22 @@ its output (so on Linux the thumbnail needs no scratch file at all), GNU
 markers exist only where the question does), and there is no Finder to inherit
 "Put Back" from — hence the freedesktop pair, written by hand: the file under
 `Trash/files` and a `.trashinfo` beside it naming where it came from.
+
+## Built after the design session
+
+The list above was the plan; these arrived by using the thing:
+
+- **A preview pane** under the listing, and three ways to divide the column.
+  In half-and-half the pane does the full job and `e` writes inside it.
+- **A writer** (`e`), which saves by writing a neighbour and renaming it over
+  the original, keeping the mode and the trailing newline as they were.
+- **Rename** (`R`), which was simply missing.
+- **Archives as trees**, in the pane and in a two-column window, including the
+  folders that only a member's path implies.
+- **HTML**, read by `textutil` (or `w3m`, `lynx`, `html2text`), with the
+  headings marked by comparing the converted text against the source.
+- **Cloud files**, marked ☁ and fetched only after a question.
+- **The toolbox**, which made Linux one code path instead of a fork.
 
 ## Open
 - **Progress while copying.** `ditto -V` writes a line per file and could feed a

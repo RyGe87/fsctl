@@ -13,6 +13,21 @@ system: `cp` and `mv` move the bytes, `git status` reports the repositories,
 macOS and Linux. Which features are available depends on what the machine has;
 `fsctl --doctor` tells you in one screen.
 
+**What it does**
+
+- **Three sources** over the same files: the folder tree, every git repository
+  under your roots, and only the repositories with unsaved work
+- **A preview that reads the file**: JSON, XML and property lists formatted,
+  markdown rendered, HTML read as a page, pictures as a thumbnail of half
+  blocks, archives as a tree — none of it parsed by us
+- **Archives without unpacking**: walk a zip in two columns, read a member
+  straight out of it, take one out when you want it
+- **Copy, move, pack, rename, delete** — with the destination asked for in the
+  tree you already know, clashes counted before anything moves, and deletes
+  going to the trash your desktop understands
+- **A small writer** for text files, which never leaves a file half-written
+- **Three layouts**, from all-files to half-and-half, on one key
+
 ## Doctor
 
 ```
