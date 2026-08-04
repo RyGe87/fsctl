@@ -1,0 +1,20 @@
+[package]
+name = "fsctl"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A two-pane terminal file manager that asks the system instead of reimplementing it: cp and mv move the bytes, git knows the repositories. Zero dependencies."
+authors = ["Geert Rymenants"]
+license = "MIT"
+readme = "README.md"
+
+# Nothing here, and nothing planned. The terminal layer is our own (src/term.rs,
+# carried over from sshctl), the file work belongs to /bin/cp and /bin/mv, and
+# the repository facts belong to git.
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
