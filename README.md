@@ -59,6 +59,16 @@ variable.
 
 ## Install
 
+Prebuilt binaries are on the
+[releases page](https://github.com/RyGe87/fsctl/releases): macOS (universal,
+signed with a Developer ID and notarized by Apple, so it opens like any other
+program) and Linux (x86_64). `SHA256SUMS` lists every checksum, and
+`gh attestation verify <file> --owner RyGe87` proves a download was built from
+this repository by GitHub's own runners — Linux has no notary, so that is the
+honest equivalent.
+
+Building it yourself is one command:
+
 ```sh
 cargo install --path .
 ```
