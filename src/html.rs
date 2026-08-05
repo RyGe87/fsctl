@@ -66,7 +66,10 @@ pub fn render(path: &Path) -> Result<(Vec<Styled>, Vec<String>, &'static str), S
 /// The text of every `<h1>`…`<h6>`, flattened the way the converter would have
 /// flattened it, so the two can be compared line for line.
 fn headings_in(source: &str) -> Vec<String> {
-    let lower = source.to_lowercase();
+    // ASCII lowering only: it leaves every byte where it was, so an index
+    // found in `lower` can safely slice `source`. Full lowercasing can grow a
+    // character ('İ' becomes two) and shift everything behind it.
+    let lower = source.to_ascii_lowercase();
     let mut out = Vec::new();
     let mut at = 0;
     while let Some(open) = lower[at..].find("<h") {
@@ -139,15 +142,13 @@ fn style(text: &str, headings: &[String]) -> Vec<Styled> {
         let is_heading = headings.iter().any(|h| h == trimmed.trim());
         let style = if is_heading {
             Style::new().add_modifier(Modifier::BOLD)
-        } else if trimmed.starts_with("• ") {
-            Style::new()
         } else {
             Style::new()
         };
-        if trimmed.starts_with("• ") {
+        if let Some(rest) = trimmed.strip_prefix("• ") {
             out.push(vec![
                 ("• ".to_string(), Style::new().fg(Color::Yellow)),
-                (trimmed[4..].to_string(), style),
+                (rest.to_string(), style),
             ]);
         } else {
             out.push(vec![(trimmed.to_string(), style)]);
@@ -164,6 +165,14 @@ mod tests {
     fn headings_are_found_whatever_their_case_or_attributes() {
         let source = "<H1 class='x'>First</H1><p>no</p><h3>Second <b>bold</b></h3>";
         assert_eq!(headings_in(source), vec!["First", "Second bold"]);
+    }
+
+    /// 'İ' grows a byte when lowercased; the scan must not let that shift its
+    /// indices into the source.
+    #[test]
+    fn a_character_that_grows_when_lowercased_does_not_shift_the_scan() {
+        let source = "<p>İİİİ</p><h1>Title</h1>";
+        assert_eq!(headings_in(source), vec!["Title"]);
     }
 
     #[test]
