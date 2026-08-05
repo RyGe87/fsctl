@@ -1,5 +1,7 @@
 # fsctl
 
+[![ci](https://github.com/RyGe87/fsctl/actions/workflows/ci.yml/badge.svg)](https://github.com/RyGe87/fsctl/actions/workflows/ci.yml)
+
 A file manager for the terminal, in two columns: a **source** on the left, its
 items on the right. The folder tree is only one of those sources — git knows
 which repositories exist and what is unsaved in them, and that gives two more
@@ -58,9 +60,11 @@ variable.
 ## Install
 
 ```sh
-cargo build --release
-ln -sf "$PWD/target/release/fsctl" /opt/homebrew/bin/fsctl
+cargo install --path .
 ```
+
+The release build lands in `~/.cargo/bin`, which is already on your path if
+Rust came from rustup.
 
 ### Walking with your shell
 
