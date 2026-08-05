@@ -290,8 +290,9 @@ off the edge you slide into view.
 
 The shifted keys leap — `J`/`K` down and up, `D`/`F` sideways — ten at a time,
 or whatever `FSCTL_LEAP` says. And `e` opens the same file in the writer,
-without the detour past the listing; only a member shown out of an archive
-refuses, having no file on disk to write to.
+without the detour past the listing: the writer takes the window's place, and
+closing it puts the reading back, freshly read. Only a member shown out of an
+archive refuses, having no file on disk to write to.
 
 **Markdown is rendered**: headings bold without their hashes, `-` becomes `•`,
 `**strong**` and `_emphasis_` lose their markers and keep their weight, code

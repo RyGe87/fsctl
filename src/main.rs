@@ -754,8 +754,28 @@ impl App {
             return;
         };
         match editor::Editor::open(&path, &name) {
-            Ok(buffer) => self.modal = Some(Modal::Edit(buffer)),
+            Ok(mut buffer) => {
+                // Over the look, not in the pane: you were reading here, and
+                // closing puts the reading back.
+                buffer.windowed = true;
+                self.modal = Some(Modal::Edit(buffer));
+            }
             Err(reason) => self.status = reason,
+        }
+    }
+
+    /// Closing the writer: back to the look it came from, freshly read, or
+    /// simply back to the listing.
+    fn close_editor(&mut self) {
+        let (windowed, path, name) = match &self.modal {
+            Some(Modal::Edit(buffer)) => {
+                (buffer.windowed, buffer.path.clone(), buffer.name.clone())
+            }
+            _ => return,
+        };
+        self.modal = None;
+        if windowed {
+            self.preview_of(path, name);
         }
     }
 
@@ -1343,10 +1363,10 @@ impl App {
                     let saved = buffer.save();
                     match saved {
                         Ok(()) => {
-                            self.modal = None;
                             self.status = "saved".into();
                             self.peeked = None;
                             self.rebuild_right();
+                            self.close_editor();
                         }
                         Err(e) => {
                             buffer.asking = false;
@@ -1355,8 +1375,8 @@ impl App {
                     }
                 }
                 KeyCode::Char('d') => {
-                    self.modal = None;
                     self.status = "changes thrown away".into();
+                    self.close_editor();
                 }
                 KeyCode::Esc => buffer.asking = false,
                 _ => {}
@@ -1386,7 +1406,7 @@ impl App {
                 if buffer.dirty {
                     buffer.asking = true;
                 } else {
-                    self.modal = None;
+                    self.close_editor();
                 }
             }
             _ => {}
@@ -2277,7 +2297,13 @@ fn draw(frame: &mut term::Frame, app: &mut App) {
     let editing_in_pane = app.pane == Pane::Split && peek_height > 0;
     match &mut app.modal {
         Some(Modal::Edit(buffer)) => {
-            let area = if editing_in_pane { peek } else { frame.area() };
+            // A writer summoned from the look window keeps that window's
+            // place; only the everyday e edits in the pane.
+            let area = if editing_in_pane && !buffer.windowed {
+                peek
+            } else {
+                frame.area()
+            };
             draw_edit(frame, buffer, area)
         }
         Some(Modal::Rename(rename)) => draw_rename(frame, rename),

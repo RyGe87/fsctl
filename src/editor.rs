@@ -24,6 +24,10 @@ pub struct Editor {
     /// Set while the question "you have changes" is on screen.
     pub asking: bool,
     pub note: Option<String>,
+    /// Drawn over the whole screen even when the pane could hold it — set
+    /// when the writer was opened from the look window, so closing can go
+    /// back there.
+    pub windowed: bool,
     /// Whether the file ended with a newline, so saving does not quietly add
     /// or drop one.
     trailing_newline: bool,
@@ -61,6 +65,7 @@ impl Editor {
             dirty: false,
             asking: false,
             note: None,
+            windowed: false,
             trailing_newline,
         })
     }
@@ -211,6 +216,7 @@ mod tests {
             dirty: false,
             asking: false,
             note: None,
+            windowed: false,
             trailing_newline: true,
         }
     }
