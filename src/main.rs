@@ -40,6 +40,27 @@ const LEFT_WIDTH: u16 = 34;
 /// your place on the screen.
 const LEAP: isize = 10;
 
+/// What `--help` prints. The keys live behind `?` inside; out here are the
+/// arguments and the handful of environment variables that steer the tool.
+const USAGE: &str = "\
+fsctl — a two-pane file manager for the terminal
+
+Usage:
+  fsctl [path]        open at path (default: the current directory)
+  fsctl --doctor      what this machine can and cannot do, in one screen
+  fsctl --version     print the version
+  fsctl --help        print this text
+
+Inside, ? shows the keys.
+
+Environment:
+  FSCTL_ROOTS         where to look for git repositories, colon-separated
+                      like a PATH (default: ~/Development)
+  FSCTL_CWD_FILE      a file to write the folder you leave in, so a shell
+                      function can cd there afterwards (see the README)
+  FSCTL_TRASH=plain   delete without Finder, moving files to the trash by hand
+";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Source {
     Folders,
@@ -2868,6 +2889,12 @@ fn stdout_is_terminal() -> bool {
 }
 
 fn main() -> std::io::Result<()> {
+    // Help answers first, and without a terminal: `fsctl --help | less`
+    // should work the way every other tool's does.
+    if std::env::args().any(|a| a == "--help" || a == "-h") {
+        print!("{USAGE}");
+        return Ok(());
+    }
     // What this machine can and cannot do, before anything is drawn.
     if std::env::args().any(|a| a == "--doctor" || a == "-d") {
         print!("{}", toolbox::report());

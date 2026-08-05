@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2 — 2026-08-05
+
+- `fsctl --help` (and `-h`) now prints usage, the arguments, and the
+  environment variables that steer the tool. It answers without a terminal,
+  so `fsctl --help | less` works like any other tool's. The keys stay behind
+  `?` inside.
+- First release published to crates.io by the pipeline itself, over OIDC
+  trusted publishing — no token stored anywhere.
+
 ## 0.1.1 — 2026-08-05
 
 - Two fixes out of a full review. Lowercasing an HTML page could grow a
