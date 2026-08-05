@@ -114,7 +114,7 @@ After that `f` is your file manager, and where you leave it is where you stand.
 | `space` | tick a file |
 | `c` `m` `v` | copy · move (asks where to) · paste |
 | `z` | pack the selection into a zip, here |
-| `p` | look into the file (`j`/`k` up and down, `d`/`f` sideways, `t` raw) |
+| `p` | look into the file (`j`/`k` up and down, `d`/`f` sideways, `t` raw, `e` edit) |
 | `e` | edit a text file (`ctrl-s` saves, `esc` closes) |
 | `u` | in an archive: unpack the selected member here |
 | `R` | rename what the cursor is on |
@@ -287,6 +287,11 @@ file to the editor that was built for it.
 eight columns (`0` returns to the start; `h`/`l` and the arrows do the same).
 Long lines are cut rather than wrapped — code keeps its shape, and what falls
 off the edge you slide into view.
+
+The shifted keys leap — `J`/`K` down and up, `D`/`F` sideways — ten at a time,
+or whatever `FSCTL_LEAP` says. And `e` opens the same file in the writer,
+without the detour past the listing; only a member shown out of an archive
+refuses, having no file on disk to write to.
 
 **Markdown is rendered**: headings bold without their hashes, `-` becomes `•`,
 `**strong**` and `_emphasis_` lose their markers and keep their weight, code

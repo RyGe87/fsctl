@@ -190,6 +190,9 @@ struct DeleteAsk {
 /// A look inside a file: the lines we read, and how far down we have walked.
 struct Look {
     name: String,
+    /// Where the file lives — a member read out of an archive lives nowhere,
+    /// and so cannot be written.
+    path: Option<PathBuf>,
     lines: Vec<markdown::Styled>,
     /// The file as it reads on disk, when a formatter or a renderer changed
     /// how it looks.
@@ -720,6 +723,9 @@ impl App {
                     look.widest = widest_of(&look.lines);
                 }
             }
+            // From looking straight into writing — same file, no detour past
+            // the listing.
+            KeyCode::Char('e') => self.edit_looked(),
             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') | KeyCode::Enter => {
                 let back = match &mut self.modal {
                     Some(Modal::Look(look)) => look.back.take(),
@@ -728,6 +734,28 @@ impl App {
                 self.modal = back.map(Modal::Inside);
             }
             _ => {}
+        }
+    }
+
+    /// From looking to writing without the detour past the listing: the same
+    /// file, opened in the writer. A member shown out of an archive has no
+    /// file to write to, and says so.
+    fn edit_looked(&mut self) {
+        let (path, name, picture) = match &self.modal {
+            Some(Modal::Look(look)) => (look.path.clone(), look.name.clone(), look.picture),
+            _ => return,
+        };
+        if picture {
+            self.status = "a picture is not text".into();
+            return;
+        }
+        let Some(path) = path else {
+            self.status = "this lives in the archive — u unpacks it first".into();
+            return;
+        };
+        match editor::Editor::open(&path, &name) {
+            Ok(buffer) => self.modal = Some(Modal::Edit(buffer)),
+            Err(reason) => self.status = reason,
         }
     }
 
@@ -772,6 +800,7 @@ impl App {
         let widest = widest_of(&built.lines);
         self.modal = Some(Modal::Look(Look {
             name,
+            path: Some(path),
             lines: built.lines,
             raw: built.raw,
             showing_raw: false,
@@ -927,6 +956,7 @@ impl App {
         let widest = widest_of(&lines);
         self.modal = Some(Modal::Look(Look {
             name,
+            path: None,
             lines,
             raw: None,
             showing_raw: false,
@@ -2328,6 +2358,9 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
         }
         if let Some(note) = &look.note {
             parts.push(note.clone());
+        }
+        if look.path.is_some() && !look.picture {
+            parts.push("e edit".to_string());
         }
         parts.push("esc close".to_string());
         parts.join("   ·   ")
