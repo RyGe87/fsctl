@@ -2382,59 +2382,72 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
     );
 }
 
-/// Everything the bottom bar used to say, at the moment you ask for it.
+/// Everything the bottom bar used to say, at the moment you ask for it: one
+/// aligned grid, a row per key, the tree marks included — and it names the
+/// leap it actually has.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 22] = [
-        ("1 2 3", "folders · repositories · unsaved work"),
-        ("Tab", "switch column"),
-        ("j k ↑ ↓", "move · J K by ten · PgUp/PgDn by screen"),
-        ("g G", "to the start and the end"),
-        ("l h → ←", "open and close a folder, or switch column"),
-        ("w W", "make this folder the root · lift the root"),
-        ("Enter", "open the file"),
-        ("space", "tick a file"),
-        ("c m v", "copy · move (asks where to) · paste"),
-        ("p", "look into a file · j k up and down · d f sideways"),
-        ("u", "   in a zip: unpack this one here (enter looks)"),
-        ("", "   json/xml are formatted · t shows the original"),
-        ("z", "pack the selection into a zip, here"),
-        ("x Del", "to the trash, after a question"),
-        ("s S", "sort by name/type/date · reverse the order"),
-        (".", "show hidden files"),
-        ("R", "rename what the cursor is on"),
-        ("e", "edit a text file · ctrl-s saves · esc closes"),
-        (
-            "P",
-            "the layout: files only · a strip below · half and half",
+    let n = leap_size();
+    let row = |keys: &str, what: String| (keys.to_string(), what);
+    let gap = || (String::new(), String::new());
+    let rows: Vec<(String, String)> = vec![
+        row("1 2 3", "folders · repos · unsaved".into()),
+        row("Tab", "the other column".into()),
+        row(
+            "j k ↑ ↓",
+            format!("one row · J K ctrl-↑↓ {n} rows · PgUp PgDn a screen"),
         ),
-        ("r", "refresh"),
-        ("Esc", "clear the selection, then the clipboard"),
-        ("q", "close, where you stood"),
+        row("g G", "top · bottom".into()),
+        row("h l ← →", "close · open a folder, or switch column".into()),
+        row("w W", "make this folder the root · lift the root".into()),
+        row("Enter", "open with the system".into()),
+        gap(),
+        row("space", "tick a file".into()),
+        row("c m v", "copy · move (asks where to) · paste".into()),
+        row("R", "rename".into()),
+        row("z", "pack the ticked into a zip".into()),
+        row("x Del", "to the trash, asked first".into()),
+        row("Esc", "clear the selection, then the clipboard".into()),
+        gap(),
+        row("p", "look into a file · e edits it · t the original".into()),
+        row(
+            "",
+            format!("j k d f scroll · shift leaps {n} · 0 left edge"),
+        ),
+        row("u", "in an archive: unpack the member here".into()),
+        row("e", "edit · ctrl-s saves · esc closes".into()),
+        row("P", "layout: files only · a strip · half and half".into()),
+        row("s S", "sort by name/type/date · reverse".into()),
+        row(".", "show hidden files".into()),
+        row("r", "refresh".into()),
+        row("q", "quit, where you stood".into()),
+        gap(),
+        row(
+            "▾ ▸ × ·",
+            "unfolds · holds folders · truly empty · hidden only".into(),
+        ),
     ];
 
     let mut lines: Vec<term::Line> = rows
         .iter()
         .map(|(keys, what)| {
+            if keys.is_empty() && what.is_empty() {
+                return term::Line::default();
+            }
             term::Line::from(vec![
                 term::Span::styled(
-                    width::fit(keys, 9),
+                    width::fit(keys, 10),
                     Style::new().add_modifier(Modifier::BOLD),
                 ),
-                term::Span::raw(what.to_string()),
+                term::Span::raw(what.clone()),
             ])
         })
         .collect();
     lines.push(term::Line::default());
-    lines.push(term::Line::from(term::Span::styled(
-        "in the tree:  ▾ ▸ holds folders   × empty   · hidden content only",
-        dim,
-    )));
-    lines.push(term::Line::default());
     lines.push(term::Line::from(term::Span::styled("esc close", dim)));
 
     let area = frame.area();
-    let w = area.width.clamp(24, 70);
+    let w = area.width.clamp(24, 66);
     let h = (lines.len() as u16 + 2).min(area.height);
     let box_area = Rect {
         x: area.width.saturating_sub(w) / 2,
