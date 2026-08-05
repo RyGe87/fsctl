@@ -326,7 +326,7 @@ there — **without unpacking**:
 │  dir/                                                — │
 │  dir/data.json                                     8 B │
 │                                                        │
-│enter look   ·   e extract here   ·   esc close         │
+│enter look   ·   u unpack here   ·   esc close          │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -351,8 +351,8 @@ clean up, and nothing you might edit by accident in a place that is about to
 vanish. `Esc` takes you back to the listing.
 
 Opening a member in another app is deliberately absent, for exactly that reason:
-you could save, and the saving would go nowhere. `e` is the honest answer — it
-extracts the selected member **into the folder you are standing in**, as a real
+you could save, and the saving would go nowhere. `u` is the honest answer — it
+unpacks the selected member **into the folder you are standing in**, as a real
 file, in a place that will still be there tomorrow. An existing name is never
 overwritten.
 
