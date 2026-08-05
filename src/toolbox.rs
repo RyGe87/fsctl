@@ -122,7 +122,11 @@ pub fn get() -> &'static Toolbox {
 
         Toolbox {
             cp: which(&["cp"]),
-            copy_style: if apple { CopyStyle::Bsd } else { CopyStyle::Gnu },
+            copy_style: if apple {
+                CopyStyle::Bsd
+            } else {
+                CopyStyle::Gnu
+            },
             mv: which(&["mv"]),
             sh: which(&["sh"]),
             date: which(&["date"]),
@@ -182,7 +186,12 @@ pub fn report() -> String {
         },
     );
     line(&mut out, "move", show(&t.mv), "mv -f");
-    line(&mut out, "open", show(&t.open), "hands a file to the desktop");
+    line(
+        &mut out,
+        "open",
+        show(&t.open),
+        "hands a file to the desktop",
+    );
     line(&mut out, "git", show(&t.git), "the repository sources");
     line(&mut out, "find", show(&t.find), "finding repositories");
     line(
@@ -220,7 +229,12 @@ pub fn report() -> String {
         }),
         "formatting in the preview",
     );
-    line(&mut out, "xml", show(&t.xmllint), "formatting in the preview");
+    line(
+        &mut out,
+        "xml",
+        show(&t.xmllint),
+        "formatting in the preview",
+    );
     line(
         &mut out,
         "html",

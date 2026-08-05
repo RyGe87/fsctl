@@ -55,7 +55,8 @@ fn formatter(path: &Path) -> Option<(&'static str, Command)> {
         "json" | "geojson" | "webmanifest" | "jsonc" => match tools.json.clone()? {
             (JsonTool::Plutil, program) => {
                 let mut c = Command::new(program);
-                c.args(["-convert", "json", "-r", "-o", "-", "--"]).arg(path);
+                c.args(["-convert", "json", "-r", "-o", "-", "--"])
+                    .arg(path);
                 Some(("plutil", c))
             }
             (JsonTool::Jq, program) => {

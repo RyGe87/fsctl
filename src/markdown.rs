@@ -95,7 +95,9 @@ fn heading(trimmed: &str) -> Option<&str> {
     if hashes == 0 || hashes > 6 {
         return None;
     }
-    trimmed[hashes..].strip_prefix(' ').map(|rest| rest.trim_end())
+    trimmed[hashes..]
+        .strip_prefix(' ')
+        .map(|rest| rest.trim_end())
 }
 
 /// The markers inside a line: `**strong**`, `_emphasis_`, `` `code` `` and
@@ -199,7 +201,10 @@ mod tests {
     #[test]
     fn markers_disappear_but_the_words_stay() {
         assert_eq!(text(&inline("a **strong** word", plain())), "a strong word");
-        assert_eq!(text(&inline("with `code` in it", plain())), "with code in it");
+        assert_eq!(
+            text(&inline("with `code` in it", plain())),
+            "with code in it"
+        );
     }
 
     #[test]

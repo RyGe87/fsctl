@@ -13,8 +13,8 @@ use std::path::Path;
 use std::process::Command;
 
 use crate::markdown::Styled;
-use crate::toolbox::{self, ImageTool};
 use crate::term::{Color, Style};
+use crate::toolbox::{self, ImageTool};
 
 /// Half a block: ink on top, paper below.
 const HALF: &str = "▀";

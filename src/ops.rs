@@ -381,13 +381,20 @@ pub fn compress(items: &[PathBuf], dest_dir: &Path) -> Result<PathBuf, String> {
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_else(|| "archive".to_string())
     };
-    let target = if dest_dir.join(format!("{stem}.zip")).symlink_metadata().is_ok() {
+    let target = if dest_dir
+        .join(format!("{stem}.zip"))
+        .symlink_metadata()
+        .is_ok()
+    {
         free_name(dest_dir, &format!("{stem}.zip"))
     } else {
         dest_dir.join(format!("{stem}.zip"))
     };
 
-    let zip = toolbox::get().zip.as_ref().ok_or("no zip on this machine")?;
+    let zip = toolbox::get()
+        .zip
+        .as_ref()
+        .ok_or("no zip on this machine")?;
     let out = Command::new(zip)
         .current_dir(&base)
         .args(["-r", "-q"])

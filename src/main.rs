@@ -126,7 +126,10 @@ enum Pending {
     /// Pull a file down from the cloud, then do what was asked with it.
     Fetch(FetchAsk),
     /// Zipping can take a while on a big folder; say so before it starts.
-    Compress { items: Vec<PathBuf>, dest: PathBuf },
+    Compress {
+        items: Vec<PathBuf>,
+        dest: PathBuf,
+    },
     Refresh,
     /// Finder does the trashing, and a busy Finder should not look like a
     /// frozen tool: the screen says so first, then we wait.
@@ -480,10 +483,7 @@ impl App {
         let slow = self.repos.iter().filter(|r| r.unread).count();
         self.status = match slow {
             0 => format!("{} repositories", self.repos.len()),
-            n => format!(
-                "{} repositories · {n} too slow to read",
-                self.repos.len()
-            ),
+            n => format!("{} repositories · {n} too slow to read", self.repos.len()),
         };
     }
 
@@ -719,7 +719,12 @@ impl App {
 
     fn preview_of(&mut self, path: PathBuf, name: String) {
         let (w, h) = self.screen;
-        let built = build_preview(&path, w.saturating_sub(8), h.saturating_sub(7), Shown::Window);
+        let built = build_preview(
+            &path,
+            w.saturating_sub(8),
+            h.saturating_sub(7),
+            Shown::Window,
+        );
         let widest = widest_of(&built.lines);
         self.modal = Some(Modal::Look(Look {
             name,
@@ -1692,16 +1697,15 @@ fn build_preview(path: &Path, cols: u16, rows: u16, shown: Shown) -> Built {
                     })
                     .collect();
                 if members.len() > visible {
-                    lines.push(as_styled(vec![format!("… and {} more", members.len() - visible)])
-                        .remove(0));
+                    lines.push(
+                        as_styled(vec![format!("… and {} more", members.len() - visible)])
+                            .remove(0),
+                    );
                 }
                 Built {
                     lines,
                     raw: None,
-                    note: Some(format!(
-                        "{} items · p to walk through it",
-                        members.len()
-                    )),
+                    note: Some(format!("{} items · p to walk through it", members.len())),
                     picture: false,
                 }
             }
@@ -1937,9 +1941,8 @@ fn right_rows(app: &App, width_cells: usize) -> Vec<Row> {
     // down to three letters and an ellipsis.
     let show_date = width_cells >= 66;
     let show_size = width_cells >= 52;
-    let fixed = 4 + KIND
-        + if show_size { SIZE + 1 } else { 0 }
-        + if show_date { DATE + 1 } else { 0 };
+    let fixed =
+        4 + KIND + if show_size { SIZE + 1 } else { 0 } + if show_date { DATE + 1 } else { 0 };
     let name_w = width_cells.saturating_sub(fixed).max(10);
 
     app.items
@@ -2062,7 +2065,11 @@ fn draw_peek(frame: &mut term::Frame, app: &mut App, area: Rect) {
     };
 
     // The note earns its line only when the pane is tall enough to spare one.
-    let body = if note.is_some() && rows > 3 { rows - 1 } else { rows };
+    let body = if note.is_some() && rows > 3 {
+        rows - 1
+    } else {
+        rows
+    };
     let mut text: Vec<term::Line> = lines
         .iter()
         .take(body)
@@ -2320,7 +2327,10 @@ fn draw_help(frame: &mut term::Frame) {
         (".", "show hidden files"),
         ("R", "rename what the cursor is on"),
         ("e", "edit a text file · ctrl-s saves · esc closes"),
-        ("P", "the layout: files only · a strip below · half and half"),
+        (
+            "P",
+            "the layout: files only · a strip below · half and half",
+        ),
         ("r", "refresh"),
         ("q", "close, where you stood"),
     ];
@@ -2343,10 +2353,7 @@ fn draw_help(frame: &mut term::Frame) {
         dim,
     )));
     lines.push(term::Line::default());
-    lines.push(term::Line::from(term::Span::styled(
-        "esc close",
-        dim,
-    )));
+    lines.push(term::Line::from(term::Span::styled("esc close", dim)));
 
     let area = frame.area();
     let w = area.width.clamp(24, 70);
@@ -2417,7 +2424,11 @@ fn draw_edit(frame: &mut term::Frame, buffer: &mut editor::Editor, area: Rect) {
             };
             spans.push(term::Span::raw(width::truncate(before, room)));
             spans.push(term::Span::styled(
-                if on.is_empty() { " ".into() } else { on.to_string() },
+                if on.is_empty() {
+                    " ".into()
+                } else {
+                    on.to_string()
+                },
                 Style::new().add_modifier(Modifier::REVERSED),
             ));
             spans.push(term::Span::raw(rest.to_string()));
@@ -2456,13 +2467,11 @@ fn draw_edit(frame: &mut term::Frame, buffer: &mut editor::Editor, area: Rect) {
 
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
-        term::Paragraph::new(term::Text::from(lines)).block(
-            Block::bordered().title(format!(
-                " {}{} ",
-                width::truncate(&buffer.name, inner.saturating_sub(6)),
-                if buffer.dirty { " •" } else { "" }
-            )),
-        ),
+        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(format!(
+            " {}{} ",
+            width::truncate(&buffer.name, inner.saturating_sub(6)),
+            if buffer.dirty { " •" } else { "" }
+        ))),
         box_area,
     );
 }
@@ -2489,7 +2498,11 @@ fn draw_rename(frame: &mut term::Frame, rename: &Rename) {
     let line = term::Line::from(vec![
         term::Span::raw(before.to_string()),
         term::Span::styled(
-            if at.is_empty() { " ".to_string() } else { at.to_string() },
+            if at.is_empty() {
+                " ".to_string()
+            } else {
+                at.to_string()
+            },
             Style::new().add_modifier(Modifier::REVERSED),
         ),
         term::Span::raw(rest.to_string()),
@@ -2543,7 +2556,10 @@ fn draw_destination(frame: &mut term::Frame, pick: &Destination, app: &App) {
     };
     frame.render_widget(
         term::Paragraph::new(term::Line::from(term::Span::styled(
-            width::fit("v to here   ·   l h open and close   ·   esc pick it yourself", inner),
+            width::fit(
+                "v to here   ·   l h open and close   ·   esc pick it yourself",
+                inner,
+            ),
             Style::new().fg(Color::DarkGray),
         ))),
         footer,
@@ -2564,14 +2580,11 @@ fn draw_inside(frame: &mut term::Frame, inside: &mut Inside) {
 
     // The same division as outside: folders on the left, files on the right.
     let tree_w = (w * 2 / 5).clamp(14, 40);
-    let [tree_area, list_area] = Layout::horizontal([
-        Constraint::Length(tree_w),
-        Constraint::Min(12),
-    ])
-    .areas(Rect {
-        height: h.saturating_sub(1),
-        ..box_area
-    });
+    let [tree_area, list_area] =
+        Layout::horizontal([Constraint::Length(tree_w), Constraint::Min(12)]).areas(Rect {
+            height: h.saturating_sub(1),
+            ..box_area
+        });
     let rows = h.saturating_sub(3) as usize;
 
     let folder_rows: Vec<Row> = inside
@@ -2711,7 +2724,8 @@ fn draw_fetch(frame: &mut term::Frame, ask: &FetchAsk) {
     };
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
-        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" From the cloud ")),
+        term::Paragraph::new(term::Text::from(lines))
+            .block(Block::bordered().title(" From the cloud ")),
         box_area,
     );
 }
@@ -2777,8 +2791,7 @@ fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
     };
     frame.render_widget(term::Clear, box_area);
     frame.render_widget(
-        term::Paragraph::new(term::Text::from(lines))
-            .block(Block::bordered().title(" Delete ")),
+        term::Paragraph::new(term::Text::from(lines)).block(Block::bordered().title(" Delete ")),
         box_area,
     );
 }
@@ -2816,10 +2829,10 @@ fn draw_conflict(frame: &mut term::Frame, conflict: &Conflict, app: &App) {
             "[B] Keep both      — the arrival becomes name-2",
             Style::new().fg(Color::Green),
         )),
+        term::Line::from(term::Span::raw("[O] Overwrite      — folders are merged")),
         term::Line::from(term::Span::raw(
-            "[O] Overwrite      — folders are merged",
+            "[S] Skip           — leaves the clashing ones",
         )),
-        term::Line::from(term::Span::raw("[S] Skip           — leaves the clashing ones")),
         term::Line::from(term::Span::styled(
             "[Esc] Cancel",
             Style::new().fg(Color::DarkGray),

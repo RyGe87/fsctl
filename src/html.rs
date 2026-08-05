@@ -60,7 +60,11 @@ pub fn render(path: &Path) -> Result<(Vec<Styled>, Vec<String>, &'static str), S
 
     let headings = headings_in(&source);
     let text = String::from_utf8_lossy(&out.stdout);
-    Ok((style(&text, &headings), source.lines().map(|l| l.to_string()).collect(), kind.name()))
+    Ok((
+        style(&text, &headings),
+        source.lines().map(|l| l.to_string()).collect(),
+        kind.name(),
+    ))
 }
 
 /// The text of every `<h1>`…`<h6>`, flattened the way the converter would have

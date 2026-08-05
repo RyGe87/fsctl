@@ -228,7 +228,10 @@ pub fn sort(entries: &mut [Entry], by: Sort, reverse: bool) {
     entries.sort_by(|a, b| {
         let order = b.is_dir.cmp(&a.is_dir).then_with(|| match by {
             Sort::Name => natural(&a.name, &b.name),
-            Sort::Kind => a.kind().cmp(&b.kind()).then_with(|| natural(&a.name, &b.name)),
+            Sort::Kind => a
+                .kind()
+                .cmp(&b.kind())
+                .then_with(|| natural(&a.name, &b.name)),
             // Newest first is what you mean by "sort by date".
             Sort::Date => b.mtime.cmp(&a.mtime),
         });
@@ -254,7 +257,10 @@ fn natural(a: &str, b: &str) -> std::cmp::Ordering {
                         other => return other,
                     }
                 }
-                let (lc, rc) = (l.to_lowercase().next().unwrap_or(l), r.to_lowercase().next().unwrap_or(r));
+                let (lc, rc) = (
+                    l.to_lowercase().next().unwrap_or(l),
+                    r.to_lowercase().next().unwrap_or(r),
+                );
                 match lc.cmp(&rc) {
                     std::cmp::Ordering::Equal => {
                         left.next();
@@ -275,7 +281,9 @@ fn take_number(it: &mut std::iter::Peekable<std::str::Chars>) -> u128 {
         }
         // A number longer than a u128 is not a version, it is a hash: stop
         // growing and let the rest compare as text.
-        n = n.saturating_mul(10).saturating_add((c as u8 - b'0') as u128);
+        n = n
+            .saturating_mul(10)
+            .saturating_add((c as u8 - b'0') as u128);
         it.next();
     }
     n
