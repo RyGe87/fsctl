@@ -2308,7 +2308,7 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
 /// Everything the bottom bar used to say, at the moment you ask for it.
 fn draw_help(frame: &mut term::Frame) {
     let dim = Style::new().fg(Color::DarkGray);
-    let rows: [(&str, &str); 21] = [
+    let rows: [(&str, &str); 22] = [
         ("1 2 3", "folders · repositories · unsaved work"),
         ("Tab", "switch column"),
         ("j k ↑ ↓", "move · J K by ten · PgUp/PgDn by screen"),
@@ -2322,7 +2322,7 @@ fn draw_help(frame: &mut term::Frame) {
         ("u", "   in a zip: unpack this one here (enter looks)"),
         ("", "   json/xml are formatted · t shows the original"),
         ("z", "pack the selection into a zip, here"),
-        ("x", "to the trash, after a question"),
+        ("x Del", "to the trash, after a question"),
         ("s S", "sort by name/type/date · reverse the order"),
         (".", "show hidden files"),
         ("R", "rename what the cursor is on"),
@@ -2332,6 +2332,7 @@ fn draw_help(frame: &mut term::Frame) {
             "the layout: files only · a strip below · half and half",
         ),
         ("r", "refresh"),
+        ("Esc", "clear the selection, then the clipboard"),
         ("q", "close, where you stood"),
     ];
 
