@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3 — 2026-08-05
+
+- `e` writes from the look window too: the same file, without the detour
+  past the listing. A member shown out of an archive refuses — there is no
+  file on disk to write to.
+- Every shift-leap is one size: J K, the ctrl-arrows, and now D F sideways
+  in the look window. Ten by default; `FSCTL_LEAP` picks another ten.
+- The help is one aligned grid — a row per key, the tree marks included,
+  and the leap distance printed as it actually is.
+
 ## 0.1.2 — 2026-08-05
 
 - `fsctl --help` (and `-h`) now prints usage, the arguments, and the
