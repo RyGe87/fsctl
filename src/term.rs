@@ -362,11 +362,26 @@ impl Block {
         frame.set(left, bottom, '└', style);
         frame.set(right, bottom, '┘', style);
         if let Some(title) = &self.title {
-            for (x, ch) in (left + 1..).zip(title.chars()) {
-                if x >= right {
+            // Titles carry file names, which are not all one cell wide: a wide
+            // character claims the cell it spills into, and a combining mark
+            // rides in the cell before it — else the whole border row shifts.
+            let mut x = left + 1;
+            for ch in title.chars() {
+                let w = crate::width::char_width(ch) as u16;
+                if w == 0 {
+                    if x > left + 1 {
+                        frame.add_combining(x - 1, top, ch);
+                    }
+                    continue;
+                }
+                if x + w > right {
                     break;
                 }
                 frame.set(x, top, ch, style);
+                if w == 2 {
+                    frame.set(x + 1, top, CONTINUATION, style);
+                }
+                x += w;
             }
         }
         Rect {
@@ -1293,5 +1308,26 @@ mod tests {
         assert_eq!(row, "┌T─────────┐");
         assert_eq!(frame.cells[13].ch, 'h');
         assert_eq!(frame.cells[14].ch, 'i');
+    }
+
+    /// File names land in titles, and not every character is one cell wide: a
+    /// wide one must claim its spill cell and an accent must ride along, or
+    /// everything after them — the border corner included — shifts on screen.
+    #[test]
+    fn wide_and_decomposed_title_characters_occupy_their_real_cells() {
+        let mut frame = Frame {
+            width: 12,
+            height: 3,
+            cells: vec![BLANK; 36],
+        };
+        Block::bordered()
+            .title("漢e\u{0301}x")
+            .render_frame(frame.area(), &mut frame);
+        assert_eq!(frame.cells[1].ch, '漢');
+        assert_eq!(frame.cells[2].ch, CONTINUATION);
+        assert_eq!(frame.cells[3].ch, 'e');
+        assert_eq!(frame.cells[3].comb, Some('\u{0301}'));
+        assert_eq!(frame.cells[4].ch, 'x');
+        assert_eq!(frame.cells[11].ch, '┐');
     }
 }
