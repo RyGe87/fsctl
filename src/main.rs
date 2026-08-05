@@ -25,6 +25,7 @@ mod width;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use fsmodel::{Entry, Sort};
@@ -36,9 +37,20 @@ use widgets::{List, Row};
 
 const LEFT_WIDTH: u16 = 34;
 
-/// How far a leap goes: far enough to be worth a chord, short enough to keep
-/// your place on the screen.
-const LEAP: isize = 10;
+/// How far a leap goes — what J K, D F and the ctrl-arrows jump at once.
+///
+/// Ten by default: far enough to be worth a chord, short enough to keep your
+/// place on the screen. `FSCTL_LEAP` picks another ten; nonsense is ignored.
+fn leap_size() -> isize {
+    static SIZE: OnceLock<isize> = OnceLock::new();
+    *SIZE.get_or_init(|| {
+        std::env::var("FSCTL_LEAP")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|n| (1..=999).contains(n))
+            .unwrap_or(10)
+    })
+}
 
 /// What `--help` prints. The keys live behind `?` inside; out here are the
 /// arguments and the handful of environment variables that steer the tool.
@@ -58,6 +70,8 @@ Environment:
                       like a PATH (default: ~/Development)
   FSCTL_CWD_FILE      a file to write the folder you leave in, so a shell
                       function can cd there afterwards (see the README)
+  FSCTL_LEAP          how far a shift-leap jumps — J K, D F and the
+                      ctrl-arrows, this many at once (default 10)
   FSCTL_TRASH=plain   delete without Finder, moving files to the trash by hand
 ";
 
@@ -520,11 +534,11 @@ impl App {
             match key.code {
                 // The one everyone's fingers know.
                 KeyCode::Char('c') => self.leave(),
-                // A leap of ten. Only the arrows: ctrl-d is also what a
-                // closing pipe sends, and a key that a machine can press by
-                // itself has no business moving your cursor.
-                KeyCode::Down => self.leap(LEAP),
-                KeyCode::Up => self.leap(-LEAP),
+                // A leap. Only the arrows: ctrl-d is also what a closing
+                // pipe sends, and a key that a machine can press by itself
+                // has no business moving your cursor.
+                KeyCode::Down => self.leap(leap_size()),
+                KeyCode::Up => self.leap(-leap_size()),
                 _ => {}
             }
             return;
@@ -554,8 +568,8 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => self.move_cursor(-1),
             // Shift for a leap: ctrl-j is byte 0x0A, which is Enter itself and
             // cannot be told apart from it.
-            KeyCode::Char('J') => self.leap(LEAP),
-            KeyCode::Char('K') => self.leap(-LEAP),
+            KeyCode::Char('J') => self.leap(leap_size()),
+            KeyCode::Char('K') => self.leap(-leap_size()),
             KeyCode::PageDown => self.move_cursor(self.page() as isize),
             KeyCode::PageUp => self.move_cursor(-(self.page() as isize)),
             KeyCode::Home | KeyCode::Char('g') => self.move_cursor(-1_000_000),
@@ -673,8 +687,8 @@ impl App {
             KeyCode::Up | KeyCode::Char('k') => look.offset = look.offset.saturating_sub(1),
             KeyCode::PageDown => look.offset = (look.offset + height).min(last),
             KeyCode::PageUp => look.offset = look.offset.saturating_sub(height),
-            KeyCode::Char('J') => look.offset = (look.offset + LEAP as usize).min(last),
-            KeyCode::Char('K') => look.offset = look.offset.saturating_sub(LEAP as usize),
+            KeyCode::Char('J') => look.offset = (look.offset + leap_size() as usize).min(last),
+            KeyCode::Char('K') => look.offset = look.offset.saturating_sub(leap_size() as usize),
             KeyCode::Home | KeyCode::Char('g') => look.offset = 0,
             KeyCode::End | KeyCode::Char('G') => look.offset = last,
             // Sideways in steps of eight: one column at a time turns reading a
@@ -684,6 +698,15 @@ impl App {
             }
             KeyCode::Left | KeyCode::Char('d') | KeyCode::Char('h') => {
                 look.column = look.column.saturating_sub(8)
+            }
+            // The shift of the same keys leaps sideways: the usual steps of
+            // eight, a leap of them at once.
+            KeyCode::Char('F') | KeyCode::Char('L') => {
+                look.column =
+                    (look.column + 8 * leap_size() as usize).min(look.widest.saturating_sub(8))
+            }
+            KeyCode::Char('D') | KeyCode::Char('H') => {
+                look.column = look.column.saturating_sub(8 * leap_size() as usize)
             }
             KeyCode::Char('0') => look.column = 0,
             // Back and forth between what the formatter made of it and what
@@ -798,8 +821,8 @@ impl App {
         let moved = match code {
             KeyCode::Down | KeyCode::Char('j') => (cursor + 1).min(last),
             KeyCode::Up | KeyCode::Char('k') => cursor.saturating_sub(1),
-            KeyCode::Char('J') => (cursor + LEAP as usize).min(last),
-            KeyCode::Char('K') => cursor.saturating_sub(LEAP as usize),
+            KeyCode::Char('J') => (cursor + leap_size() as usize).min(last),
+            KeyCode::Char('K') => cursor.saturating_sub(leap_size() as usize),
             KeyCode::PageDown => (cursor + height).min(last),
             KeyCode::PageUp => cursor.saturating_sub(height),
             KeyCode::Home | KeyCode::Char('g') => 0,
@@ -1488,8 +1511,8 @@ impl App {
         match code {
             KeyCode::Down | KeyCode::Char('j') => pick.cursor = (pick.cursor + 1).min(last),
             KeyCode::Up | KeyCode::Char('k') => pick.cursor = pick.cursor.saturating_sub(1),
-            KeyCode::Char('J') => pick.cursor = (pick.cursor + LEAP as usize).min(last),
-            KeyCode::Char('K') => pick.cursor = pick.cursor.saturating_sub(LEAP as usize),
+            KeyCode::Char('J') => pick.cursor = (pick.cursor + leap_size() as usize).min(last),
+            KeyCode::Char('K') => pick.cursor = pick.cursor.saturating_sub(leap_size() as usize),
             KeyCode::PageDown => pick.cursor = (pick.cursor + height).min(last),
             KeyCode::PageUp => pick.cursor = pick.cursor.saturating_sub(height),
             KeyCode::Home | KeyCode::Char('g') => pick.cursor = 0,

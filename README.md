@@ -105,7 +105,7 @@ After that `f` is your file manager, and where you leave it is where you stand.
 | `1` `2` `3` | switch source |
 | `Tab` | switch column |
 | `j` `k` · arrows | up and down |
-| `J` `K` · `Ctrl`+arrow | ten at a time |
+| `J` `K` · `Ctrl`+arrow | ten at a time — `FSCTL_LEAP` picks the ten |
 | `l` `→` | open a folder, or move right |
 | `h` `←` | close a folder, or move back left |
 | `Enter` | open the file with `open` |
