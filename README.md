@@ -59,6 +59,18 @@ variable.
 
 ## Install
 
+Homebrew is the short route, on macOS and on Linux:
+
+```sh
+brew install RyGe87/tap/fsctl
+```
+
+Or from crates.io, which builds it from source:
+
+```sh
+cargo install fsctl
+```
+
 Prebuilt binaries are on the
 [releases page](https://github.com/RyGe87/fsctl/releases): macOS (universal,
 signed with a Developer ID and notarized by Apple, so it opens like any other
@@ -67,14 +79,8 @@ program) and Linux (x86_64). `SHA256SUMS` lists every checksum, and
 this repository by GitHub's own runners — Linux has no notary, so that is the
 honest equivalent.
 
-Building it yourself is one command:
-
-```sh
-cargo install --path .
-```
-
-The release build lands in `~/.cargo/bin`, which is already on your path if
-Rust came from rustup.
+To build the checkout you have in front of you, `cargo install --path .`; the
+binary lands in `~/.cargo/bin`, already on your path if Rust came from rustup.
 
 ### Walking with your shell
 
