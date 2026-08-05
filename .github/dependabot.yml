@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # There are no crates to keep fresh — zero dependencies is the point. All
+  # GitHub Actions bumps arrive as one weekly PR; the volume is low and CI
+  # plus an rc tag prove them out. The cooldown leaves day-one regressions
+  # in brand-new releases for upstream to fix.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns:
+          - "*"

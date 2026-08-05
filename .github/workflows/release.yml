@@ -1,0 +1,108 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  # For the build-provenance attestations on the artifacts.
+  id-token: write
+  attestations: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    env:
+      # Signing needs the secrets below; without them the plain build still
+      # succeeds and ships unsigned.
+      HAVE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup target add aarch64-apple-darwin x86_64-apple-darwin
+      - run: cargo build --release --target aarch64-apple-darwin
+      - run: cargo build --release --target x86_64-apple-darwin
+      - name: universal binary
+        run: |
+          mkdir -p dist
+          lipo -create -output dist/fsctl \
+            target/aarch64-apple-darwin/release/fsctl \
+            target/x86_64-apple-darwin/release/fsctl
+      - name: sign and notarize
+        if: env.HAVE_SIGNING == 'true'
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: |
+          # A throwaway keychain holds the Developer ID identity for the
+          # length of this job.
+          KC=build.keychain
+          KCPW=$(uuidgen)
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 -d > cert.p12
+          security import cert.p12 -k "$KC" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm cert.p12
+          security set-key-partition-list -S 'apple-tool:,apple:,codesign:' -s -k "$KCPW" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" login.keychain
+          IDENT=$(security find-identity -v -p codesigning "$KC" \
+            | grep -om1 '"Developer ID Application: [^"]*"' | tr -d '"')
+          echo "signing as $IDENT"
+          codesign --force --options runtime --timestamp --keychain "$KC" \
+            --sign "$IDENT" dist/fsctl
+          # Notarize the bare binary; a Mach-O file cannot be stapled, so
+          # the approval is looked up online on first run.
+          zip -j bins-submit.zip dist/fsctl
+          xcrun notarytool submit bins-submit.zip --wait \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$NOTARY_PASSWORD"
+      - name: package
+        run: tar -C dist -czf fsctl-macos-universal.tar.gz fsctl
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos
+          path: fsctl-macos-universal.tar.gz
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: cargo build --release
+      - run: tar -C target/release -czf fsctl-linux-x86_64.tar.gz fsctl
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: linux
+          path: fsctl-linux-x86_64.tar.gz
+
+  publish:
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          merge-multiple: true
+      - run: sha256sum *.tar.gz > SHA256SUMS
+      # Linux has no notary; verifiable provenance is the honest equivalent.
+      # `gh attestation verify <file> --owner RyGe87` proves an artifact was
+      # built from this repository by this workflow.
+      - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: "*.tar.gz"
+      # The gh CLI is part of the runner image: publishing a release needs no
+      # third-party action. A tag with a dash (v0.1.1-rc.1) is a trial run,
+      # not a release.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # -R names the repository: this job never checks out, so gh has no
+          # git directory to infer it from.
+          flags=(-R "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag)
+          case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" "${flags[@]}" \
+            *.tar.gz SHA256SUMS
