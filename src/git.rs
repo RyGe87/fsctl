@@ -249,7 +249,7 @@ fn number_after(text: &str, key: &str) -> usize {
 }
 
 /// Re-asks only the repositories that moved since last time.
-pub fn refresh(repos: &mut Vec<Repo>) {
+pub fn refresh(repos: &mut [Repo]) {
     for repo in repos.iter_mut() {
         if stamp_of(&repo.path) == repo.stamp {
             continue;
@@ -258,6 +258,17 @@ pub fn refresh(repos: &mut Vec<Repo>) {
             *repo = fresh;
         }
     }
+}
+
+/// The repository a path belongs to, if any — walking up, no git call needed.
+pub fn repo_of(path: &Path, repos: &[Repo]) -> Option<usize> {
+    repos
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| path.starts_with(&r.path))
+        // The deepest match wins, for repositories inside repositories.
+        .max_by_key(|(_, r)| r.path.components().count())
+        .map(|(i, _)| i)
 }
 
 #[cfg(test)]
@@ -285,15 +296,4 @@ mod tests {
         assert_eq!(number_after(track, "behind "), 12);
         assert_eq!(number_after("nothing here", "ahead "), 0);
     }
-}
-
-/// The repository a path belongs to, if any — walking up, no git call needed.
-pub fn repo_of(path: &Path, repos: &[Repo]) -> Option<usize> {
-    repos
-        .iter()
-        .enumerate()
-        .filter(|(_, r)| path.starts_with(&r.path))
-        // The deepest match wins, for repositories inside repositories.
-        .max_by_key(|(_, r)| r.path.components().count())
-        .map(|(i, _)| i)
 }

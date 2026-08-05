@@ -187,9 +187,9 @@ struct Inside {
     path: PathBuf,
     name: String,
     members: Vec<archive::Member>,
-    folders: std::collections::BTreeSet<String>,
+    folders: BTreeSet<String>,
     /// Which folders are unfolded, by their path inside the archive.
-    opened: std::collections::BTreeSet<String>,
+    opened: BTreeSet<String>,
     /// The folder rows as drawn: depth, path.
     rows: Vec<(usize, String)>,
     dir_cursor: usize,
@@ -252,6 +252,15 @@ struct Rename {
     cursor: usize,
 }
 
+/// What the pane under the listing is showing: for which file, at which size,
+/// and the lines themselves — thrown away when any of those change.
+struct Peeked {
+    path: PathBuf,
+    size: (u16, u16),
+    lines: Vec<markdown::Styled>,
+    note: Option<String>,
+}
+
 enum Modal {
     Edit(editor::Editor),
     Rename(Rename),
@@ -291,9 +300,8 @@ struct App {
     screen: (u16, u16),
     /// How the right column is divided.
     pane: Pane,
-    /// What the pane is showing, for which file and at which size — recomputed
-    /// when any of those three change.
-    peeked: Option<(PathBuf, (u16, u16), Vec<markdown::Styled>, Option<String>)>,
+    /// What the pane is showing — recomputed when file or size changes.
+    peeked: Option<Peeked>,
     quit: bool,
 }
 
@@ -322,7 +330,7 @@ impl App {
             clipboard: None,
             repos: Vec::new(),
             scanned: false,
-            status: format!("{}", shorten(&root)),
+            status: shorten(&root),
             modal: None,
             pending: None,
             left_height: 20,
@@ -383,7 +391,6 @@ impl App {
             self.left_cursor = self.nodes.len().saturating_sub(1);
         }
     }
-
 
     fn current_path(&self) -> Option<PathBuf> {
         self.nodes.get(self.left_cursor).map(|n| n.path.clone())
@@ -704,7 +711,7 @@ impl App {
             return;
         }
         if archive::is_archive(&path) {
-            self.open_archive(path, name, 0);
+            self.open_archive(path, name);
             return;
         }
         self.preview_of(path, name);
@@ -712,13 +719,7 @@ impl App {
 
     fn preview_of(&mut self, path: PathBuf, name: String) {
         let (w, h) = self.screen;
-        let built = build_preview(
-            &path,
-            &name,
-            w.saturating_sub(8),
-            h.saturating_sub(7),
-            Shown::Window,
-        );
+        let built = build_preview(&path, w.saturating_sub(8), h.saturating_sub(7), Shown::Window);
         let widest = widest_of(&built.lines);
         self.modal = Some(Modal::Look(Look {
             name,
@@ -734,7 +735,7 @@ impl App {
         }));
     }
 
-    fn open_archive(&mut self, path: PathBuf, name: String, cursor: usize) {
+    fn open_archive(&mut self, path: PathBuf, name: String) {
         match archive::list(&path) {
             Ok(members) if !members.is_empty() => {
                 let folders = archive::folders(&members);
@@ -743,11 +744,11 @@ impl App {
                     name,
                     members,
                     folders,
-                    opened: std::collections::BTreeSet::new(),
+                    opened: BTreeSet::new(),
                     rows: Vec::new(),
                     dir_cursor: 0,
                     dir_offset: 0,
-                    file_cursor: cursor,
+                    file_cursor: 0,
                     file_offset: 0,
                     focus: Focus::Right,
                 };
@@ -768,16 +769,15 @@ impl App {
             Focus::Left => (inside.rows.len().saturating_sub(1), inside.dir_cursor),
             Focus::Right => (inside.files().len().saturating_sub(1), inside.file_cursor),
         };
-        let moved;
-        match code {
-            KeyCode::Down | KeyCode::Char('j') => moved = (cursor + 1).min(last),
-            KeyCode::Up | KeyCode::Char('k') => moved = cursor.saturating_sub(1),
-            KeyCode::Char('J') => moved = (cursor + LEAP as usize).min(last),
-            KeyCode::Char('K') => moved = cursor.saturating_sub(LEAP as usize),
-            KeyCode::PageDown => moved = (cursor + height).min(last),
-            KeyCode::PageUp => moved = cursor.saturating_sub(height),
-            KeyCode::Home | KeyCode::Char('g') => moved = 0,
-            KeyCode::End | KeyCode::Char('G') => moved = last,
+        let moved = match code {
+            KeyCode::Down | KeyCode::Char('j') => (cursor + 1).min(last),
+            KeyCode::Up | KeyCode::Char('k') => cursor.saturating_sub(1),
+            KeyCode::Char('J') => (cursor + LEAP as usize).min(last),
+            KeyCode::Char('K') => cursor.saturating_sub(LEAP as usize),
+            KeyCode::PageDown => (cursor + height).min(last),
+            KeyCode::PageUp => cursor.saturating_sub(height),
+            KeyCode::Home | KeyCode::Char('g') => 0,
+            KeyCode::End | KeyCode::Char('G') => last,
             KeyCode::Tab => {
                 inside.focus = if inside.focus == Focus::Left {
                     Focus::Right
@@ -833,7 +833,7 @@ impl App {
                 return;
             }
             _ => return,
-        }
+        };
         match inside.focus {
             Focus::Left if moved != inside.dir_cursor => {
                 inside.dir_cursor = moved;
@@ -1199,7 +1199,7 @@ impl App {
         }
         // Refuse to delete the ground you are standing on: the tree would be
         // rooted at something that no longer exists.
-        if items.iter().any(|p| *p == self.root) {
+        if items.contains(&self.root) {
             self.status = "the root of the tree cannot go from here".into();
             return;
         }
@@ -1520,7 +1520,7 @@ impl App {
         };
         // Zipping the folder you are standing in puts the archive beside it,
         // not inside it — an archive that contains itself is a riddle.
-        if items.iter().any(|item| *item == dest)
+        if items.contains(&dest)
             && let Some(parent) = dest.parent()
         {
             dest = parent.to_path_buf();
@@ -1653,7 +1653,7 @@ struct Built {
     picture: bool,
 }
 
-fn build_preview(path: &Path, name: &str, cols: u16, rows: u16, shown: Shown) -> Built {
+fn build_preview(path: &Path, cols: u16, rows: u16, shown: Shown) -> Built {
     // An archive is not text, but it is not opaque either: the pane shows what
     // is in it, the same listing `p` walks through. Reading the central
     // directory costs no unpacking.
@@ -1661,14 +1661,14 @@ fn build_preview(path: &Path, name: &str, cols: u16, rows: u16, shown: Shown) ->
         return match archive::list(path) {
             Ok(members) if !members.is_empty() => {
                 let room = cols as usize;
-                let shown = (rows as usize).saturating_sub(1).max(1);
+                let visible = (rows as usize).saturating_sub(1).max(1);
                 // Indented by depth: a listing of full paths reads as noise,
                 // and the shape of an archive is the first thing you want.
                 let mut sorted: Vec<&archive::Member> = members.iter().collect();
                 sorted.sort_by(|a, b| a.name.cmp(&b.name));
                 let mut lines: Vec<markdown::Styled> = sorted
                     .iter()
-                    .take(shown)
+                    .take(visible)
                     .map(|m| {
                         let depth = m.name.trim_end_matches('/').matches('/').count();
                         let style = if m.is_dir {
@@ -1691,8 +1691,8 @@ fn build_preview(path: &Path, name: &str, cols: u16, rows: u16, shown: Shown) ->
                         ]
                     })
                     .collect();
-                if members.len() > shown {
-                    lines.push(as_styled(vec![format!("… and {} more", members.len() - shown)])
+                if members.len() > visible {
+                    lines.push(as_styled(vec![format!("… and {} more", members.len() - visible)])
                         .remove(0));
                 }
                 Built {
@@ -1777,7 +1777,6 @@ fn build_preview(path: &Path, name: &str, cols: u16, rows: u16, shown: Shown) ->
         preview::Preview::Text { lines, raw, note } => (lines, raw, note),
         preview::Preview::NotText(reason) => (Vec::new(), None, Some(reason)),
     };
-    let _ = name;
 
     let (lines, raw) = if markdown_file && !plain.is_empty() {
         note = Some("rendered · t shows the source".to_string());
@@ -2019,13 +2018,12 @@ fn draw_peek(frame: &mut term::Frame, app: &mut App, area: Rect) {
             let stale = app
                 .peeked
                 .as_ref()
-                .map(|(p, s, _, _)| *p != item.path || *s != size)
+                .map(|peeked| peeked.path != item.path || peeked.size != size)
                 .unwrap_or(true);
             if stale {
                 let (styled, note) = match app.pane {
                     Pane::Split => {
-                        let built =
-                            build_preview(&item.path, &item.name, inner_w, inner_h, Shown::Pane);
+                        let built = build_preview(&item.path, inner_w, inner_h, Shown::Pane);
                         (built.lines, built.note)
                     }
                     _ => {
@@ -2043,12 +2041,17 @@ fn draw_peek(frame: &mut term::Frame, app: &mut App, area: Rect) {
                         (cheap, None)
                     }
                 };
-                app.peeked = Some((item.path.clone(), size, styled, note));
+                app.peeked = Some(Peeked {
+                    path: item.path.clone(),
+                    size,
+                    lines: styled,
+                    note,
+                });
             }
             let (lines, note) = app
                 .peeked
                 .as_ref()
-                .map(|(_, _, l, n)| (l.clone(), n.clone()))
+                .map(|peeked| (peeked.lines.clone(), peeked.note.clone()))
                 .unwrap_or_default();
             (
                 format!(" {} ", width::truncate(&item.name, inner_w as usize)),
@@ -2214,8 +2217,8 @@ fn draw_look(frame: &mut term::Frame, look: &Look) {
     let w = area.width.saturating_sub(6).max(24);
     let h = area.height.saturating_sub(4).max(6);
     let box_area = Rect {
-        x: (area.width - w) / 2,
-        y: (area.height - h) / 2,
+        x: area.width.saturating_sub(w) / 2,
+        y: area.height.saturating_sub(h) / 2,
         width: w,
         height: h,
     };
@@ -2346,7 +2349,7 @@ fn draw_help(frame: &mut term::Frame) {
     )));
 
     let area = frame.area();
-    let w = area.width.min(70).max(24);
+    let w = area.width.clamp(24, 70);
     let h = (lines.len() as u16 + 2).min(area.height);
     let box_area = Rect {
         x: area.width.saturating_sub(w) / 2,
@@ -2375,8 +2378,8 @@ fn draw_edit(frame: &mut term::Frame, buffer: &mut editor::Editor, area: Rect) {
         area.height
     };
     let box_area = Rect {
-        x: area.x + (area.width - w) / 2,
-        y: area.y + (area.height - h) / 2,
+        x: area.x + area.width.saturating_sub(w) / 2,
+        y: area.y + area.height.saturating_sub(h) / 2,
         width: w,
         height: h,
     };
@@ -2466,7 +2469,7 @@ fn draw_edit(frame: &mut term::Frame, buffer: &mut editor::Editor, area: Rect) {
 
 fn draw_rename(frame: &mut term::Frame, rename: &Rename) {
     let area = frame.area();
-    let w = area.width.min(60).max(24);
+    let w = area.width.clamp(24, 60);
     let h = 5u16.min(area.height);
     let box_area = Rect {
         x: area.width.saturating_sub(w) / 2,
@@ -2509,7 +2512,7 @@ fn draw_rename(frame: &mut term::Frame, rename: &Rename) {
 
 fn draw_destination(frame: &mut term::Frame, pick: &Destination, app: &App) {
     let area = frame.area();
-    let w = area.width.min(56).max(24);
+    let w = area.width.clamp(24, 56);
     let h = area.height.saturating_sub(6).max(6);
     let box_area = Rect {
         x: (area.width.saturating_sub(w)) / 2,
@@ -2552,8 +2555,8 @@ fn draw_inside(frame: &mut term::Frame, inside: &mut Inside) {
     let w = area.width.saturating_sub(6).max(24);
     let h = area.height.saturating_sub(4).max(8);
     let box_area = Rect {
-        x: (area.width - w) / 2,
-        y: (area.height - h) / 2,
+        x: area.width.saturating_sub(w) / 2,
+        y: area.height.saturating_sub(h) / 2,
         width: w,
         height: h,
     };
@@ -2698,7 +2701,7 @@ fn draw_fetch(frame: &mut term::Frame, ask: &FetchAsk) {
         )),
     ];
     let area = frame.area();
-    let w = area.width.min(60).max(24);
+    let w = area.width.clamp(24, 60);
     let h = (lines.len() as u16 + 2).min(area.height);
     let box_area = Rect {
         x: area.width.saturating_sub(w) / 2,
@@ -2764,7 +2767,7 @@ fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
     )));
 
     let area = frame.area();
-    let w = area.width.min(60).max(24);
+    let w = area.width.clamp(24, 60);
     let h = (lines.len() as u16 + 2).min(area.height);
     let box_area = Rect {
         x: area.width.saturating_sub(w) / 2,
@@ -2782,7 +2785,7 @@ fn draw_delete(frame: &mut term::Frame, ask: &DeleteAsk) {
 
 fn draw_conflict(frame: &mut term::Frame, conflict: &Conflict, app: &App) {
     let area = frame.area();
-    let w = area.width.min(62).max(24);
+    let w = area.width.clamp(24, 62);
     let h = 10u16.min(area.height);
     let box_area = Rect {
         x: area.width.saturating_sub(w) / 2,
